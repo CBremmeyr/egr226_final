@@ -19,11 +19,12 @@
 #include <stdlib.h>
 #include <string.h>
 
-#define BOUNCE 10       //debounce button press for 10ms
+#define BOUNCE 200       //debounce button press for 10ms
 #define MS 3000         //3000 clock cycles = 1ms
 #define US 3            //3 clock cycles = 1us
 
 void init_SysTick(void);
+void init_LEDs(void);
 void init_LCD(void);
 void init_Switches(void);
 void init_Timer32(void);
@@ -78,8 +79,9 @@ void main(void)
 {
 	WDT_A->CTL = WDT_A_CTL_PW | WDT_A_CTL_HOLD;		// stop watchdog timer
 
-    init_Switches();
 	init_SysTick();
+    init_Switches();
+	init_LEDs();
 	init_LCD();
 	init_Timer32();
 	__enable_interrupt();
@@ -93,11 +95,11 @@ void main(void)
 	            {
 	            case Idle:
 
-                    if(set_time_flag==1)        //if btn_setTime
+                    if(set_time_flag)        //if btn_setTime
                     {
                         state = Set_Time;
                     }
-                    if(set_alarm_flag==1)       //if btn_setAlarm
+                    if(set_alarm_flag)       //if btn_setAlarm
                     {
                         state = Set_Alarm;
                     }
@@ -124,6 +126,23 @@ void init_SysTick(void)             //reset and enable SysTick timer
    SysTick->LOAD = (MS - 1);
    SysTick->VAL = 0;
    SysTick->CTRL = 5;
+}
+
+void init_LEDs(void)
+{
+    //initialize LEDs on P2.7
+    //TimerA0.4
+    P2->SEL0 |= BIT7;
+    P2->SEL1 &= ~BIT7;
+    P2->DIR |= BIT7;
+    P2->OUT &= ~BIT7;
+
+    //initialize TimerA0 for PWM at 3KHz
+    //3KHz = 1000 clock cycles
+    TIMER_A0->CCR[0] = 1000 - 1;
+    TIMER_A0->CCR[4] = 0;               //initialize LEDs off (0% duty cycle)
+    TIMER_A0->CCTL[4] = 0b11100000;     //0xE0  reset/set mode
+    TIMER_A0->CTL = 0b1000010100;       //no clock divider
 }
 void init_Timer32(void)
 {
@@ -460,11 +479,12 @@ void init_Switches(void)
 
     NVIC_EnableIRQ(PORT4_IRQn);     //initialize port 4 interrupt handler
     P4->IFG = 0;                    //clear port 4 interrupt flags
-    delay_ms(5);                    //allow pins to stabilize before enabling system wide interrupts
+//    delay_ms(5);                    //allow pins to stabilize before enabling system wide interrupts
 }
 
 void PORT3_IRQHandler()
 {
+    delay_ms(BOUNCE);           //debounce button ******(need to find an alternative solution, delay in interrupt handler is bad practice)******
     int flag = P3->IFG;             //store the port 3 interrupt flags
     P3->IFG = 0;                    //clear port 3 interrupt flags
 
