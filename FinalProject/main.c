@@ -29,6 +29,19 @@
 #include <stdlib.h>
 #include <string.h>
 
+// Pin defines
+#define BACK_BTN P4
+#define BACK_TOP 2
+#define BACK_BOTTOM 3
+
+#define SET_TIMES P4
+#define SET_TIME_BTN 0
+#define SET_ALARM_BTN 1
+
+#define TOP_RIGHT_BTNS P3
+#define DOWN_BTN 5
+#define UP_BTN 6
+
 #define BOUNCE 200          // debounce button press for 10ms
 #define MS 3000             // 3000 clock cycles = 1ms
 #define US 3                // 3 clock cycles = 1us
