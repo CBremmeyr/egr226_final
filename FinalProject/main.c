@@ -468,112 +468,80 @@ void PORT3_IRQHandler()
         //for set time
         if((flag & BIT6) && (set_time_flag == 1))   //if btn_up and set hours
         {
-            hr++;                                   //add one hour to current time
-            if(hr == 12)                            //if AM/PM needs to rollover
+            RTC_C->TIM1 += 1;                       //add one hour to current time
+            if(RTC_C->TIM1 == 24)
             {
-                if(xm[1]== 'A')                     //if currently AM change to PM
-                {
-                    strcpy(xm," PM");
-                }
-                else                                //if currently PM change to AM
-                {
-                    strcpy(xm," AM");
-                }
-            }
-            if(hr == 13)                            //if hours need to rollover
-            {
-                hr = 1;                             //restart hours at 1 (no zero hour)
+                RTC_C->TIM1 = 0;
             }
         }
         if((flag & BIT5) && (set_time_flag == 1))   //if btn_down and set hours
         {
-            hr--;                                   //subtract one hour from current time
-            if(hr == 0)                             //if hours need to rollback
+            if(RTC_C->TIM1 == 0)
             {
-                hr = 12;                            //set hours to 12
+                RTC_C->TIM1 = 23;
             }
-            if(hr == 11)                            //if AM/PM needs to rollover
+            else
             {
-                if(xm[1]== 'A')                     //if currently AM change to PM
-                {
-                    strcpy(xm," PM");
-                }
-                else                                //if currently PM change to AM
-                {
-                    strcpy(xm," AM");
-                }
+                RTC_C->TIM1 -= 1;                   //subtract one hour from current time
             }
         }
         if((flag & BIT6) && (set_time_flag == 2))   //if btn_up and set minutes
         {
-            min++;                                  //add one minute to current time
-            if(min == 60)                           //if minute count needs to rollover
+            RTC_C->TIM0 += (1<<8);                                     //add one minute to current time
+            if((RTC_C->TIM0 & 0xFF00) == 60)                           //if minute count needs to rollover
             {
-                min = 0;                            //restart minute count at zero
+                RTC_C->TIM0 = (RTC_C->TIM0 & 0x00FF);                  //restart minute count at zero, keep seconds count
             }
         }
         if((flag & BIT5) && (set_time_flag == 2))   //if btn_down and set minutes
         {
-            min--;                                  //subtract one minute from current time
-            if(min == -1)                           //if minute count needs to rollback
+            if((RTC_C->TIM0 & 0xFF00) == 0)                            //if minute count needs to roll back
             {
-                min = 59;                           //set minute count to 59
+                RTC_C->TIM0 = ((59<<8) | (RTC_C->TIM0 & 0x00FF));       //set minute count to 59, keep seconds count
+            }
+            else
+            {
+                RTC_C->TIM0 -= (1<<8);                                  //subtract one minute from current time
             }
         }
 
-        //for set alarm
+        //for set alarm//    RTC_C->AMINHR = 14<<8 | 46 | BIT(15) | BIT(7);  //bit 15 and 7 are Alarm Enable bits
         if((flag & BIT6) && (set_alarm_flag == 1))  //if btn_up and set alarm
         {
-            alarm_hr++;                             //add one hour to alarm time
-            if(alarm_hr == 12)                      //if AM/PM needs to rollover
+            RTC_C->AMINHR += (1<<8);                       //add one hour to alarm time
+            if((RTC_C->AMINHR & 0xFF00) == 24)
             {
-                if(alarm_xm[1]== 'A')               //if currently AM change to PM
-                {
-                    strcpy(alarm_xm," PM");
-                }
-                else                                //if currently PM change to AM
-                {
-                    strcpy(alarm_xm," AM");
-                }
-            }
-            if(alarm_hr == 13)                      //if alarm hours need to rollover
-            {
-                alarm_hr = 1;                       //restart count at 1 (no zero hour)
+                RTC_C->AMINHR = (RTC_C->AMINHR & 0x00FF);   //restart alarm hour count, keep alarm minute count
             }
         }
         if((flag & BIT5) && (set_alarm_flag == 1))  //if btn_down and set alarm
         {
-            alarm_hr--;                             //subtract one hour from alarm time
-            if(alarm_hr == 0)                       //if alarm hours need to rollback
+            if((RTC_C->AMINHR & 0xFF00) == 0)
             {
-                alarm_hr = 12;                      //set alarm hours to 12
+                RTC_C->AMINHR = ((23<<8) | (RTC_C->AMINHR & 0x00FF));   //set alarm hours to 23, keep alarm minute count
             }
-            if(alarm_hr == 11)                      //if AM/PM needs to rollover
+            else
             {
-                if(alarm_xm[1]== 'A')               //if currently AM change to PM
-                {
-                    strcpy(alarm_xm," PM");
-                }
-                else                                //if currently PM change to AM
-                {
-                    strcpy(alarm_xm," AM");
-                }
+                RTC_C->AMINHR -= (1<<8);                   //subtract one hour from alarm time
             }
         }
         if((flag & BIT6) && (set_alarm_flag == 2))  //if btn_up and set alarm
         {
-            alarm_min++;                            //add one minute to alarm time
-            if(alarm_min == 60)                     //if alarm minutes need to rollover
+            RTC_C->AMINHR += 1;                                     //add one minute to alarm time
+            if((RTC_C->AMINHR & 0x00FF) == 60)                           //if alarm minute count needs to rollover
             {
-                alarm_min = 0;                      //restart alarm minute count at zero
+                RTC_C->AMINHR = (RTC_C->AMINHR & 0xFF00);                  //restart alarm minute count, keep alarm hour count
             }
         }
         if((flag & BIT5) && (set_alarm_flag == 2))  //if btn_down and set alarm
         {
-            alarm_min--;                            //subtract one minute from alarm time
-            if(alarm_min == -1)                     //if alarm minutes need to rollback
+            if((RTC_C->AMINHR & 0x00FF) == 0)                            //if alarm minute count needs to roll back
             {
-                alarm_min = 59;                     //set alarm minutes to 59
+                RTC_C->AMINHR = ((RTC_C->AMINHR & 0xFF00) | 59);       //set alarm minute count to 59, keep alarm hour count
+            }
+            else
+            {
+                RTC_C->AMINHR -= 1;                                  //subtract one minute from alarm time
             }
         }
 }
