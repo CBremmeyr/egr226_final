@@ -1,5 +1,5 @@
 ==/*  -------------------------------------------------------------------------------------------------------------------------
-*   Author(s):      Nicholas Veltema & Cornin Bremmeyr
+*   Author(s):      Nicholas Veltema & Corbin Bremmeyr
 *   Date:           November 18, 2018
 *   Class:          EGR226-908
 *   Assignment:     Final Project
