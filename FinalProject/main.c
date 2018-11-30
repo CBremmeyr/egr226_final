@@ -51,12 +51,12 @@ enum states{
     Snooze,
 };
 //Global variables for time tracking
-int hr = 12;
+int hr = 0;
 int min = 0;
 int sec = 0;
 
 //Global variables for alarm tracking
-int alarm_hr = 12;
+int alarm_hr = 0;
 int alarm_min = 0;
 int alarm_sec = 0;
 
@@ -544,6 +544,12 @@ void PORT3_IRQHandler()
                 RTC_C->AMINHR -= 1;                                  //subtract one minute from alarm time
             }
         }
+        hr = RTC_C->TIM1 & 0x00FF;                   // Record hours (from bottom 8 bits of TIM1)
+        min = (RTC_C->TIM0 & 0xFF00) >> 8;             // Record minutes (from top 8 bits of TIM0)
+        sec = RTC_C->TIM0 & 0x00FF;                    // Record seconds (from bottom 8 bits of TIM0)
+
+        alarm_hr = (RTC_C->AMINHR & 0xFF00) >> 8;
+        alarm_min = (RTC_C->AMINHR & 0x00FF);
 }
 void PORT4_IRQHandler()
 {
