@@ -1,4 +1,4 @@
-/*  -------------------------------------------------------------------------------------------------------------------------
+==/*  -------------------------------------------------------------------------------------------------------------------------
 *   Author(s):      Nicholas Veltema & Cornin Bremmeyr
 *   Date:           November 18, 2018
 *   Class:          EGR226-908
@@ -8,10 +8,20 @@
 *   P5.5 (A0) Analog input for screen brightness
 *   P5.4 (A1) Analog input for temp
 *   P5.1 Alarm Speaker
-*   P2.7 LED PWM
+*   P2.7 (TA0.4) LED PWM
 *   P2.6 Screen Brightness PWM
-*   P4.2 Top back button
-*   P4.3 Bottom back button
+*
+*   P2.5 LCD back light
+*   P6.4 LCD rs
+*   P6.5 LCD en
+*   P2.0 - P2.3 LCD data
+*
+*   P3.5 Button down (top - far right)
+*   P3.6 Button up (top - center right)
+*   P4.0 Button set time (top - far left)
+*   P4.1 Button set alarm (top - center left)
+*   P4.2 Button (back - top)
+*   P4.3 Button (back - bottom)
 */
 
 #include "msp.h"
@@ -19,9 +29,9 @@
 #include <stdlib.h>
 #include <string.h>
 
-#define BOUNCE 200       //debounce button press for 10ms
-#define MS 3000         //3000 clock cycles = 1ms
-#define US 3            //3 clock cycles = 1us
+#define BOUNCE 200          // debounce button press for 10ms
+#define MS 3000             // 3000 clock cycles = 1ms
+#define US 3                // 3 clock cycles = 1us
 
 void init_SysTick(void);
 void init_LEDs(void);
@@ -615,4 +625,53 @@ void PORT4_IRQHandler()
         set_alarm_flag++;
     }
 }
+
+void debounce(uint32_t len) {
+
+    uint32_t mask = 0xFFFFFFFF << len;
+    uint32_t btn_read = 0;
+
+    do {
+        btn_read = (btn_read << 1) |  | mask;
+    }
+}
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
