@@ -59,6 +59,7 @@ void init_LEDs(void);
 void init_LCD(void);
 void init_Switches(void);
 void init_Timer32(void);
+void init_adc(void);
 void start_Menu(void);
 void delay_ms(uint16_t delay);
 void delay_micro(uint8_t delay);
@@ -124,6 +125,7 @@ void main(void)
 	init_LEDs();
 	init_LCD();
 	init_Timer32();
+	init_adc();
 	__enable_interrupt();
 
 	start_Menu();                   //sends starting layout to the LCD (******this function could potentially be combined with init_LCD()*******)
