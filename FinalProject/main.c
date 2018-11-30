@@ -163,6 +163,18 @@ void init_RTC(void)
 
     NVIC_EnableIRQ(RTC_C_IRQn);     //enable RTC interrupt handler
 }
+void RTC_C_IRQHandler()
+{
+    if(RTC_C->PS1CTL & BIT0)                           // PS1 Interrupt Happened
+    {
+        hr = RTC_C->TIM1 & 0x00FF;                   // Record hours (from bottom 8 bits of TIM1)
+        min = (RTC_C->TIM0 & 0xFF00) >> 8;             // Record minutes (from top 8 bits of TIM0)
+        sec = RTC_C->TIM0 & 0x00FF;                    // Record seconds (from bottom 8 bits of TIM0)
+
+//        time_update = 1;
+        RTC_C->PS1CTL &= ~BIT0;                         // Reset interrupt flag
+    }
+}
 
 /*
  * Updates current time displayed each time through while loop in main()
@@ -544,9 +556,9 @@ void PORT3_IRQHandler()
                 RTC_C->AMINHR -= 1;                                  //subtract one minute from alarm time
             }
         }
-        hr = RTC_C->TIM1 & 0x00FF;                   // Record hours (from bottom 8 bits of TIM1)
-        min = (RTC_C->TIM0 & 0xFF00) >> 8;             // Record minutes (from top 8 bits of TIM0)
-        sec = RTC_C->TIM0 & 0x00FF;                    // Record seconds (from bottom 8 bits of TIM0)
+//        hr = RTC_C->TIM1 & 0x00FF;                   // Record hours (from bottom 8 bits of TIM1)
+//        min = (RTC_C->TIM0 & 0xFF00) >> 8;             // Record minutes (from top 8 bits of TIM0)
+//        sec = RTC_C->TIM0 & 0x00FF;                    // Record seconds (from bottom 8 bits of TIM0)
 
         alarm_hr = (RTC_C->AMINHR & 0xFF00) >> 8;
         alarm_min = (RTC_C->AMINHR & 0x00FF);
