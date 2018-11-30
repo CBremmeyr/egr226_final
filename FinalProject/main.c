@@ -22,6 +22,13 @@
 *   P4.1 Button set alarm (top - center left)
 *   P4.2 Button (back - top)
 *   P4.3 Button (back - bottom)
+*
+*   TODO:   - PWM led's with wake-up functionality
+*           - Analog input
+*               - temperature
+*               - LCD display
+*           - Serial communication
+*           - remove debounce from interrupts
 */
 
 #include "msp.h"
@@ -76,6 +83,13 @@ enum states{
     Alarm,
     Snooze,
 };
+
+/** GLOBAL VARIABLES **/
+
+// Raw ADC values, -1 indicates that there is no new value.
+volatile int temperature_raw = -1;
+volatile int lcd_raw = -1;
+
 //Global variables for time tracking
 int hr = 12;
 int min = 0;
@@ -92,7 +106,7 @@ char minutes[3] = "00";
 char seconds[3] = "00";
 char xm[4] = " AM";
 
-//Glabal strings for displaying alarm time
+//Global strings for displaying alarm time
 char alarm_hours[2];
 char alarm_minutes[2];
 char alarm_seconds[2];
@@ -176,6 +190,48 @@ void init_Timer32(void)
     TIMER32_1->CONTROL = 0b11100010;           //Timer32_1 enabled, periodic, with interrupt, no pre-scale, 32-Bit mode, wrapping mode.
     NVIC_EnableIRQ(T32_INT1_IRQn);             //enable Timer32_1 interrupt
     TIMER32_1->LOAD = 3000000 - 1;             //count down of 1 second on 3MHz clock
+}
+
+/**
+ * Set up analog input A0 & A1
+ */
+void init_adc(void) {
+
+    // P5.5 - A0
+    // P5.4 - A1
+    // 0x30 = BIT5|BIT4
+    P5->SEL0 |= 0x30;
+    P5->SEL1 |= 0x30;
+
+    ADC14->CTL0 = 0;
+    ADC14->CTL0 = 0x84200310;   // 0b 1000 0100 0010 0000 0000 0011 0001 0000 from lab 8
+    ADC14->CTL1 = 0x30;         // 0b 11 0000
+    ADC14->MCTL[0] = 0;
+    ADC14->MCTL[1] = 0;
+    ADC14->IER0 |= BIT0;
+
+    // Enable ADC
+    ADC14->CTL0 |= 0b10;
+    NVIC->ISER[0] |= 1 << ADC14_IRQn;
+}
+
+/**
+ * Record analog input values when done converting.
+ */
+void ADC14_IRQHandler(void) {
+
+    uint32_t irq_flags = ADC14->IFGRO;
+    ADC14->IFGRO = 0;
+
+    // Temperature (A1)
+    if(irq_flags & 0x2) {
+        temperature_raw = ADC14->MEM[1];
+    }
+
+    // LCD pot input
+    else if(irq_flags & 0x1) {
+        lcd_raw = ADC14->MEM[0];
+    }
 }
 
 /*
