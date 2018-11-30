@@ -24,10 +24,10 @@
 #define US 3            //3 clock cycles = 1us
 
 void init_SysTick(void);
+void init_RTC(void);
 void init_LEDs(void);
 void init_LCD(void);
 void init_Switches(void);
-void init_Timer32(void);
 void start_Menu(void);
 void delay_ms(uint16_t delay);
 void delay_micro(uint8_t delay);
@@ -83,7 +83,7 @@ void main(void)
     init_Switches();
 	init_LEDs();
 	init_LCD();
-	init_Timer32();
+	init_RTC();
 	__enable_interrupt();
 
 	start_Menu();                   //sends starting layout to the LCD (******this function could potentially be combined with init_LCD()*******)
@@ -144,47 +144,24 @@ void init_LEDs(void)
     TIMER_A0->CCTL[4] = 0b11100000;     //0xE0  reset/set mode
     TIMER_A0->CTL = 0b1000010100;       //no clock divider
 }
-void init_Timer32(void)
-{
-    TIMER32_1->CONTROL = 0b11100010;           //Timer32_1 enabled, periodic, with interrupt, no pre-scale, 32-Bit mode, wrapping mode.
-    NVIC_EnableIRQ(T32_INT1_IRQn);             //enable Timer32_1 interrupt
-    TIMER32_1->LOAD = 3000000 - 1;             //count down of 1 second on 3MHz clock
-}
 
-/*
- * Timer32_1 Interrupt Handler
- * Interrupts every second to increment current time
- */
-void T32_INT1_IRQHandler()
+void init_RTC(void)
 {
-    TIMER32_1->INTCLR = 1;          //clear interrupt flag
+    RTC_C->CTL0 = (0xA500);         //unlock RTC clock
+    RTC_C->CTL13 = 0;               //????? what does this register do
 
-    sec++;                          //add one second to current time
-    if(sec == 60)                   //if seconds count needs to rollover
-    {
-        min++;                      //add one minute to current time
-        sec = 0;                    //reset second count
-    }
-    if(min == 60)                   //if minutes count needs to rollover
-    {
-        hr++;                       //add one hour to current time
-        min = 0;                    //reset minute count
-    }
-//    if(hr == 12)                  // *******(still need to figure out a way to change AM / PM)*******
-//    {
-//        if(xm[1]== 'A')
-//        {
-//            strcpy(xm," PM");
-//        }
-//        else
-//        {
-//            strcpy(xm," AM");
-//        }
-//    }
-    if(hr == 13)                    //if hours count needs to rollover
-    {
-        hr = 1;                     //reset hour count to 1 (no zero hour)
-    }
+    RTC_C->TIM0 = 00<<8 | 00;       //00 min, 00 secs
+    RTC_C->TIM1 = 24;               //12 am        (Might need to have day?? 1<<8 | 24;)
+//    RTC_C->YEAR = 2018;
+    //Alarm at 2:46 pm
+//    RTC_C->AMINHR = 14<<8 | 46 | BIT(15) | BIT(7);  //bit 15 and 7 are Alarm Enable bits
+//    RTC_C->ADOWDAY = 0;
+    RTC_C->PS1CTL = 0b11010;        //1 second interrupt
+
+    RTC_C->CTL0 = (0xA500) | BIT5;  //turn on interrupt
+    RTC_C->CTL13 = 0;               //????? what does this register do
+
+    NVIC_EnableIRQ(RTC_C_IRQn);     //enable RTC interrupt handler
 }
 
 /*
