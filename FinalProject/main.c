@@ -1,4 +1,4 @@
-==/*  -------------------------------------------------------------------------------------------------------------------------
+/*  -------------------------------------------------------------------------------------------------------------------------
 *   Author(s):      Nicholas Veltema & Corbin Bremmeyr
 *   Date:           November 18, 2018
 *   Class:          EGR226-908
@@ -59,10 +59,7 @@ void init_RTC(void);
 void init_LEDs(void);
 void init_LCD(void);
 void init_Switches(void);
-<<<<<<< HEAD
-=======
 void init_adc(void);
->>>>>>> branch 'master' of https://github.com/CBremmeyr/egr226_final.git
 void start_Menu(void);
 void delay_ms(uint16_t delay);
 void delay_micro(uint8_t delay);
@@ -127,11 +124,8 @@ void main(void)
     init_Switches();
 	init_LEDs();
 	init_LCD();
-<<<<<<< HEAD
 	init_RTC();
-=======
 	init_adc();
->>>>>>> branch 'master' of https://github.com/CBremmeyr/egr226_final.git
 	__enable_interrupt();
 
 	start_Menu();                   //sends starting layout to the LCD (******this function could potentially be combined with init_LCD()*******)
@@ -200,7 +194,7 @@ void init_RTC(void)
     RTC_C->CTL13 = 0;               //????? what does this register do
 
     RTC_C->TIM0 = 00<<8 | 00;       //00 min, 00 secs
-    RTC_C->TIM1 = 24;               //12 am        (Might need to have day?? 1<<8 | 24;)
+    RTC_C->TIM1 = 0;               //12 am        (Might need to have day?? 1<<8 | 24;)
 //    RTC_C->YEAR = 2018;
     //Alarm at 2:46 pm
 //    RTC_C->AMINHR = 14<<8 | 46 | BIT(15) | BIT(7);  //bit 15 and 7 are Alarm Enable bits
@@ -212,9 +206,6 @@ void init_RTC(void)
 
     NVIC_EnableIRQ(RTC_C_IRQn);     //enable RTC interrupt handler
 }
-<<<<<<< HEAD
-
-=======
 
 /**
  * Set up analog input A0 & A1
@@ -244,8 +235,8 @@ void init_adc(void) {
  */
 void ADC14_IRQHandler(void) {
 
-    uint32_t irq_flags = ADC14->IFGRO;
-    ADC14->IFGRO = 0;
+    uint32_t irq_flags = ADC14->IFGR0;
+//    ADC14->IFGR0 = 0;                         TODO: Had to comment out this line in order to build??
 
     // Temperature (A1)
     if(irq_flags & 0x2) {
@@ -259,11 +250,10 @@ void ADC14_IRQHandler(void) {
 }
 
 /*
- * Timer32_1 Interrupt Handler
+ * Real Time Clock Interrupt Handler
  * Interrupts every second to increment current time
  */
 void RTC_C_IRQHandler()
->>>>>>> branch 'master' of https://github.com/CBremmeyr/egr226_final.git
 {
     if(RTC_C->PS1CTL & BIT0)                           // PS1 Interrupt Happened
     {
@@ -271,7 +261,6 @@ void RTC_C_IRQHandler()
         min = (RTC_C->TIM0 & 0xFF00) >> 8;             // Record minutes (from top 8 bits of TIM0)
         sec = RTC_C->TIM0 & 0x00FF;                    // Record seconds (from bottom 8 bits of TIM0)
 
-//        time_update = 1;
         RTC_C->PS1CTL &= ~BIT0;                         // Reset interrupt flag
     }
 }
@@ -281,6 +270,19 @@ void RTC_C_IRQHandler()
  */
 void update_time(void)
 {
+    if(RTC_C->TIM1 == 0)            //if hours equal zero time is 12am
+    {
+        hr = 12;
+        strcpy(xm, " AM");
+    }
+    if(RTC_C->TIM1 > 11)            //if hours are greater than 11 time is pm
+    {
+        strcpy(xm, " PM");
+    }
+    if(RTC_C->TIM1 > 12)            //if hours are greater than 12 convert to 12hr format
+    {
+        hr = hr - 12;
+    }
 
     if(hr < 10)                     //if current hour count is only one character
     {
@@ -322,11 +324,23 @@ void update_time(void)
 
 void set_time(void)
 {
-    char temp[2] = "  ";        //string with two spaces for blinking effect when setting time
+    char temp[2] = "  ";                //string with two spaces for blinking effect when setting time
 
-    while(set_time_flag == 1)   //while btn_setTime has not been pressed again flash hours
+    while(set_time_flag == 1)           //while btn_setTime has not been pressed again flash hours
     {
-
+        if(RTC_C->TIM1 == 0)            //if hours equal zero time is 12am
+        {
+            hr = 12;
+            strcpy(xm, " AM");
+        }
+        if(RTC_C->TIM1 > 11)            //if hours are greater than 11 time is pm
+        {
+            strcpy(xm, " PM");
+        }
+        if(RTC_C->TIM1 > 12)            //if hours are greater than 12 convert to 12hr format
+        {
+            hr = hr - 12;
+        }
         if(hr < 10)                     //if current hour count is only one character
         {
             sprintf(hours," %d",hr);    //put the integer hour count into the hours string with a leading space
@@ -340,6 +354,8 @@ void set_time(void)
         delay_ms(500);                  //delay half a second for blinking effect
         commandWrite(0x82);
         write_String(hours);            //update hours on LCD
+        commandWrite(0x8A);
+        write_String(xm);
         delay_ms(500);                  //delay half a second for blinking effect
     }
     while(set_time_flag == 2)   //while btn_setTime has not been pressed again flash minutes
@@ -458,16 +474,16 @@ void PORT3_IRQHandler()
         if((flag & BIT6) && (set_time_flag == 1))   //if btn_up and set hours
         {
             RTC_C->TIM1 += 1;                       //add one hour to current time
-            if(RTC_C->TIM1 == 24)
+            if(RTC_C->TIM1 == 24)                   //if hours need to rollover
             {
-                RTC_C->TIM1 = 0;
+                RTC_C->TIM1 = 0;                    //reset hour count to zero
             }
         }
         if((flag & BIT5) && (set_time_flag == 1))   //if btn_down and set hours
         {
-            if(RTC_C->TIM1 == 0)
+            if(RTC_C->TIM1 == 0)                    //if hours need to roll back
             {
-                RTC_C->TIM1 = 23;
+                RTC_C->TIM1 = 23;                   //set hours to 23
             }
             else
             {
@@ -476,10 +492,13 @@ void PORT3_IRQHandler()
         }
         if((flag & BIT6) && (set_time_flag == 2))   //if btn_up and set minutes
         {
-            RTC_C->TIM0 += (1<<8);                                     //add one minute to current time
-            if((RTC_C->TIM0 & 0xFF00) == 60)                           //if minute count needs to rollover
+            if(((RTC_C->TIM0 & 0xFF00)>>8) == 59)                           //if minute count needs to rollover
             {
-                RTC_C->TIM0 = (RTC_C->TIM0 & 0x00FF);                  //restart minute count at zero, keep seconds count
+                RTC_C->TIM0 = (0 | (RTC_C->TIM0 & 0x00FF));                  //restart minute count at zero, keep seconds count
+            }
+            else
+            {
+                RTC_C->TIM0 += (1<<8);                                     //add one minute to current time
             }
         }
         if((flag & BIT5) && (set_time_flag == 2))   //if btn_down and set minutes
@@ -564,7 +583,7 @@ void debounce1(uint8_t pin, uint32_t len) {
 
     do {
         btn_read = (btn_read << 1) | ((BTN_SET1->IN & pin) >> pin);
-    } while( (final == (mask | ~btn_read) || (final == (mask | btn_read)) );
+    } while( (final == (mask | ~btn_read)) || (final == (mask | btn_read)) );
 }
 
 void debounce2(uint8_t pin, uint32_t len) {
@@ -575,7 +594,7 @@ void debounce2(uint8_t pin, uint32_t len) {
 
     do {
         btn_read = (btn_read << 1) | ((BTN_SET2->IN & pin) >> pin);
-    } while( (final == (mask | ~btn_read) || (final == (mask | btn_read)) );
+    } while( (final == (mask | ~btn_read)) || (final == (mask | btn_read)) );
 }
 
 /*
