@@ -163,7 +163,7 @@ void main(void)
 	    }
 }
 
-void init_SysTick(void)             //reset and enable SysTick timer
+void init_SysTick(void)             //reset and enable SysTick timer, no interrupt
 {
    SysTick->CTRL = 0;
    SysTick->LOAD = (MS - 1);
