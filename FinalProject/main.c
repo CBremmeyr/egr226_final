@@ -1,5 +1,5 @@
-/*  -------------------------------------------------------------------------------------------------------------------------
-*   Author(s):      Nicholas Veltema & Cornin Bremmeyr
+==/*  -------------------------------------------------------------------------------------------------------------------------
+*   Author(s):      Nicholas Veltema & Corbin Bremmeyr
 *   Date:           November 18, 2018
 *   Class:          EGR226-908
 *   Assignment:     Final Project
@@ -8,10 +8,27 @@
 *   P5.5 (A0) Analog input for screen brightness
 *   P5.4 (A1) Analog input for temp
 *   P5.1 Alarm Speaker
-*   P2.7 LED PWM
+*   P2.7 (TA0.4) LED PWM
 *   P2.6 Screen Brightness PWM
-*   P4.2 Top back button
-*   P4.3 Bottom back button
+*
+*   P2.5 LCD back light
+*   P6.4 LCD rs
+*   P6.5 LCD en
+*   P2.0 - P2.3 LCD data
+*
+*   P3.5 Button down (top - far right)
+*   P3.6 Button up (top - center right)
+*   P4.0 Button set time (top - far left)
+*   P4.1 Button set alarm (top - center left)
+*   P4.2 Button (back - top)
+*   P4.3 Button (back - bottom)
+*
+*   TODO:   - PWM led's with wake-up functionality
+*           - Analog input
+*               - temperature
+*               - LCD display
+*           - Serial communication
+*           - remove debounce from interrupts
 */
 
 #include "msp.h"
@@ -19,15 +36,33 @@
 #include <stdlib.h>
 #include <string.h>
 
-#define BOUNCE 200       //debounce button press for 10ms
-#define MS 3000         //3000 clock cycles = 1ms
-#define US 3            //3 clock cycles = 1us
+// Pin defines for buttons
+
+// Set 1:Back buttons and left 2 buttons on top
+#define BTN_SET1 P4
+#define BACK_TOP_BTN 2
+#define BACK_BOTTOM_BTN 3
+#define TOP_L_BTN 0
+#define TOP_LC_BTN 1
+
+// Set 2: Right 2 buttons on top
+#define BTN_SET2 P3
+#define TOP_R_BTN 5
+#define TOP_RC_BTN 6
+
+#define BOUNCE 200          // debounce button press for 10ms
+#define MS 3000             // 3000 clock cycles = 1ms
+#define US 3                // 3 clock cycles = 1us
 
 void init_SysTick(void);
 void init_RTC(void);
 void init_LEDs(void);
 void init_LCD(void);
 void init_Switches(void);
+<<<<<<< HEAD
+=======
+void init_adc(void);
+>>>>>>> branch 'master' of https://github.com/CBremmeyr/egr226_final.git
 void start_Menu(void);
 void delay_ms(uint16_t delay);
 void delay_micro(uint8_t delay);
@@ -40,6 +75,8 @@ void set_time(void);
 void set_alarm(void);
 void update_time(void);
 void write_String(char temp[]);
+void debounce1(uint8_t pin, uint32_t len);
+void debounce2(uint8_t pin, uint32_t len);
 
 
 enum states{
@@ -50,6 +87,13 @@ enum states{
     Alarm,
     Snooze,
 };
+
+/** GLOBAL VARIABLES **/
+
+// Raw ADC values, -1 indicates that there is no new value.
+volatile int temperature_raw = -1;
+volatile int lcd_raw = -1;
+
 //Global variables for time tracking
 int hr = 0;
 int min = 0;
@@ -66,7 +110,7 @@ char minutes[3] = "00";
 char seconds[3] = "00";
 char xm[4] = " AM";
 
-//Glabal strings for displaying alarm time
+//Global strings for displaying alarm time
 char alarm_hours[2];
 char alarm_minutes[2];
 char alarm_seconds[2];
@@ -83,7 +127,11 @@ void main(void)
     init_Switches();
 	init_LEDs();
 	init_LCD();
+<<<<<<< HEAD
 	init_RTC();
+=======
+	init_adc();
+>>>>>>> branch 'master' of https://github.com/CBremmeyr/egr226_final.git
 	__enable_interrupt();
 
 	start_Menu();                   //sends starting layout to the LCD (******this function could potentially be combined with init_LCD()*******)
@@ -120,6 +168,7 @@ void main(void)
 	            }
 	    }
 }
+
 void init_SysTick(void)             //reset and enable SysTick timer
 {
    SysTick->CTRL = 0;
@@ -163,7 +212,58 @@ void init_RTC(void)
 
     NVIC_EnableIRQ(RTC_C_IRQn);     //enable RTC interrupt handler
 }
+<<<<<<< HEAD
+
+=======
+
+/**
+ * Set up analog input A0 & A1
+ */
+void init_adc(void) {
+
+    // P5.5 - A0
+    // P5.4 - A1
+    // 0x30 = BIT5|BIT4
+    P5->SEL0 |= 0x30;
+    P5->SEL1 |= 0x30;
+
+    ADC14->CTL0 = 0;
+    ADC14->CTL0 = 0x84200310;   // 0b 1000 0100 0010 0000 0000 0011 0001 0000 from lab 8
+    ADC14->CTL1 = 0x30;         // 0b 11 0000
+    ADC14->MCTL[0] = 0;
+    ADC14->MCTL[1] = 0;
+    ADC14->IER0 |= BIT0;
+
+    // Enable ADC
+    ADC14->CTL0 |= 0b10;
+    NVIC->ISER[0] |= 1 << ADC14_IRQn;
+}
+
+/**
+ * Record analog input values when done converting.
+ */
+void ADC14_IRQHandler(void) {
+
+    uint32_t irq_flags = ADC14->IFGRO;
+    ADC14->IFGRO = 0;
+
+    // Temperature (A1)
+    if(irq_flags & 0x2) {
+        temperature_raw = ADC14->MEM[1];
+    }
+
+    // LCD pot input
+    else if(irq_flags & 0x1) {
+        lcd_raw = ADC14->MEM[0];
+    }
+}
+
+/*
+ * Timer32_1 Interrupt Handler
+ * Interrupts every second to increment current time
+ */
 void RTC_C_IRQHandler()
+>>>>>>> branch 'master' of https://github.com/CBremmeyr/egr226_final.git
 {
     if(RTC_C->PS1CTL & BIT0)                           // PS1 Interrupt Happened
     {
@@ -219,130 +319,7 @@ void update_time(void)
     write_String(xm);
 }
 
-/*
- * Function initializes the LCD
- */
-void init_LCD(void)
-{
-    P2->SEL0 &= ~BIT5;          //using P2.5 to power LCD backlight until ADC-to-PWM is utilized
-    P2->SEL1 &= ~BIT5;
-    P2->DIR |= BIT5;
-    P2->OUT |= BIT5;
 
-    //RS on P6.4, Enable on P6.5
-    P6->SEL0 &= ~(BIT4|BIT5);               //set P6.4 and P6.5 for GPIO
-    P6->SEL1 &= ~(BIT4|BIT5);               //set P6.4 and P6.5 for GPIO
-    P6->DIR |= (BIT4|BIT5);                 //set P6.4 and P6.5 as outputs
-    P6->OUT &= ~(BIT4|BIT5);                //start with P6.4 and P6.5 outputs off
-
-    P2->SEL0 &= ~(BIT0|BIT1|BIT2|BIT3);     //set P2.0, P2.1, P2.2, P2.3 for GPIO
-    P2->SEL1 &= ~(BIT0|BIT1|BIT2|BIT3);     //set P2.0, P2.1, P2.2, P2.3 for GPIO
-    P2->DIR |= (BIT0|BIT1|BIT2|BIT3);       //set P2.0, P2.1, P2.2, P2.3 as outputs
-    P2->OUT &= ~(BIT0|BIT1|BIT2|BIT3);      //start with P2.0, P2.1, P2.2, P2.3 outputs off
-    delay_ms(60);                           //delay 60ms for LCD to stabilize
-
-    commandWrite(3);    //reset display
-    delay_ms(15);
-    commandWrite(3);
-    delay_ms(1);
-    commandWrite(3);
-    delay_ms(15);
-
-    commandWrite(2);    //set display to 4-bit mode
-    delay_ms(1);
-    commandWrite(2);
-    delay_ms(1);
-
-    commandWrite(8);    //4-line format
-    delay_ms(1);
-    commandWrite(0x0C); //set display on, cursor off
-    delay_ms(1);
-    commandWrite(1);    //clear display, move cursor to home position
-    delay_ms(1);
-    commandWrite(6);    //increment cursor
-    delay_ms(10);
-
-}
-void delay_ms(uint16_t delay)
-{
-    SysTick->LOAD = (delay * MS);           //load delay time in milliseconds
-    SysTick->VAL = 0;                       //start timer at zero
-    while((SysTick->CTRL & BIT(16))==0){}   //wait for delay time to elapse
-}
-void delay_micro(uint8_t delay)
-{
-    SysTick->LOAD = (delay * US);           //load delay time in microseconds
-    SysTick->VAL = 0;                       //start timer at zero
-    while((SysTick->CTRL & BIT(16))==0){}   //wait for delay time to elapse
-}
-void commandWrite(uint8_t command)
-{
-    P6->OUT &= ~BIT4;                       //set RS=0 for sending a command
-    delay_ms(1);                            //delay 1ms before sending more data
-    pushByte(command);                      //send the command to pushByte
-}
-void dataWrite(uint8_t data)
-{
-    P6->OUT |= BIT4;                        //set RS=1 for sending data
-    delay_ms(1);                            //delay 1ms before sending more data
-    pushByte(data);                         //send the data to pushByte
-}
-void pushByte(uint8_t byte)
-{
-    int x,y;
-    x = (byte >> 4);            //x = 4 MSBits
-    pushNibble(x);              //send first 4 bits to pushNibble
-    delay_micro(250);
-    y = (byte & 0xF);           //y = 4 LSBits
-    pushNibble(y);              //send second 4 bits to pushNibble
-    delay_micro(250);
-}
-void pushNibble(uint8_t nibble)
-{
-    P2->OUT &= ~0xF;     //send bits to the display
-    P2->OUT |= nibble;
-    PulseEnablePin();
-}
-void PulseEnablePin(void)
-{
-    P6->OUT &= ~BIT5;   //set enable low
-    delay_micro(10);
-    P6->OUT |= BIT5;    //set enable high
-    delay_micro(10);
-    P6->OUT &= ~BIT5;   //set enable low
-    delay_micro(10);
-}
-void write_String(char temp[])
-{
-    int i,n;
-    n = strlen(temp);       //determine the length of the string
-    for(i=0;i<n;i++)        //loop for the length of the string
-    {
-        dataWrite(temp[i]);
-    }
-}
-void start_Menu(void)
-{
-    char str1[] = "12:00:00 AM";
-    char str2[] = "ALARM OFF";
-    char str3[] = "12:00 AM";
-    char str4[] = "00.0 F";
-
-    commandWrite(1);        //clear display
-    delay_ms(1);
-
-    commandWrite(0x82);     //starting address to display string 1 on line 1 (0x80 + LCD Address in hex)
-    write_String(str1);
-
-    commandWrite(0xC4);     //starting address to display string 2 on line 2
-    write_String(str2);
-
-    commandWrite(0x95);     //starting address to display string 3 on line 3
-    write_String(str3);
-
-    commandWrite(0xD7);     //starting address to display string 4 on line 4
-    write_String(str4);
-}
 void set_time(void)
 {
     char temp[2] = "  ";        //string with two spaces for blinking effect when setting time
@@ -578,4 +555,188 @@ void PORT4_IRQHandler()
         set_alarm_flag++;
     }
 }
+
+void debounce1(uint8_t pin, uint32_t len) {
+
+    uint32_t final = 0xFFFFFFFF;
+    uint32_t mask = 0xFFFFFFFF << len;
+    uint32_t btn_read = 0x1;
+
+    do {
+        btn_read = (btn_read << 1) | ((BTN_SET1->IN & pin) >> pin);
+    } while( (final == (mask | ~btn_read) || (final == (mask | btn_read)) );
+}
+
+void debounce2(uint8_t pin, uint32_t len) {
+
+    uint32_t final = 0xFFFFFFFF;
+    uint32_t mask = 0xFFFFFFFF << len;
+    uint32_t btn_read = 0x1;
+
+    do {
+        btn_read = (btn_read << 1) | ((BTN_SET2->IN & pin) >> pin);
+    } while( (final == (mask | ~btn_read) || (final == (mask | btn_read)) );
+}
+
+/*
+ * Function initializes the LCD
+ */
+void init_LCD(void)
+{
+    P2->SEL0 &= ~BIT5;          //using P2.5 to power LCD backlight until ADC-to-PWM is utilized
+    P2->SEL1 &= ~BIT5;
+    P2->DIR |= BIT5;
+    P2->OUT |= BIT5;
+
+    //RS on P6.4, Enable on P6.5
+    P6->SEL0 &= ~(BIT4|BIT5);               //set P6.4 and P6.5 for GPIO
+    P6->SEL1 &= ~(BIT4|BIT5);               //set P6.4 and P6.5 for GPIO
+    P6->DIR |= (BIT4|BIT5);                 //set P6.4 and P6.5 as outputs
+    P6->OUT &= ~(BIT4|BIT5);                //start with P6.4 and P6.5 outputs off
+
+    P2->SEL0 &= ~(BIT0|BIT1|BIT2|BIT3);     //set P2.0, P2.1, P2.2, P2.3 for GPIO
+    P2->SEL1 &= ~(BIT0|BIT1|BIT2|BIT3);     //set P2.0, P2.1, P2.2, P2.3 for GPIO
+    P2->DIR |= (BIT0|BIT1|BIT2|BIT3);       //set P2.0, P2.1, P2.2, P2.3 as outputs
+    P2->OUT &= ~(BIT0|BIT1|BIT2|BIT3);      //start with P2.0, P2.1, P2.2, P2.3 outputs off
+    delay_ms(60);                           //delay 60ms for LCD to stabilize
+
+    commandWrite(3);    //reset display
+    delay_ms(15);
+    commandWrite(3);
+    delay_ms(1);
+    commandWrite(3);
+    delay_ms(15);
+
+    commandWrite(2);    //set display to 4-bit mode
+    delay_ms(1);
+    commandWrite(2);
+    delay_ms(1);
+
+    commandWrite(8);    //4-line format
+    delay_ms(1);
+    commandWrite(0x0C); //set display on, cursor off
+    delay_ms(1);
+    commandWrite(1);    //clear display, move cursor to home position
+    delay_ms(1);
+    commandWrite(6);    //increment cursor
+    delay_ms(10);
+
+}
+void delay_ms(uint16_t delay)
+{
+    SysTick->LOAD = (delay * MS);           //load delay time in milliseconds
+    SysTick->VAL = 0;                       //start timer at zero
+    while((SysTick->CTRL & BIT(16))==0){}   //wait for delay time to elapse
+}
+void delay_micro(uint8_t delay)
+{
+    SysTick->LOAD = (delay * US);           //load delay time in microseconds
+    SysTick->VAL = 0;                       //start timer at zero
+    while((SysTick->CTRL & BIT(16))==0){}   //wait for delay time to elapse
+}
+void commandWrite(uint8_t command)
+{
+    P6->OUT &= ~BIT4;                       //set RS=0 for sending a command
+    delay_ms(1);                            //delay 1ms before sending more data
+    pushByte(command);                      //send the command to pushByte
+}
+void dataWrite(uint8_t data)
+{
+    P6->OUT |= BIT4;                        //set RS=1 for sending data
+    delay_ms(1);                            //delay 1ms before sending more data
+    pushByte(data);                         //send the data to pushByte
+}
+void pushByte(uint8_t byte)
+{
+    int x,y;
+    x = (byte >> 4);            //x = 4 MSBits
+    pushNibble(x);              //send first 4 bits to pushNibble
+    delay_micro(250);
+    y = (byte & 0xF);           //y = 4 LSBits
+    pushNibble(y);              //send second 4 bits to pushNibble
+    delay_micro(250);
+}
+void pushNibble(uint8_t nibble)
+{
+    P2->OUT &= ~0xF;     //send bits to the display
+    P2->OUT |= nibble;
+    PulseEnablePin();
+}
+void PulseEnablePin(void)
+{
+    P6->OUT &= ~BIT5;   //set enable low
+    delay_micro(10);
+    P6->OUT |= BIT5;    //set enable high
+    delay_micro(10);
+    P6->OUT &= ~BIT5;   //set enable low
+    delay_micro(10);
+}
+void write_String(char temp[])
+{
+    int i,n;
+    n = strlen(temp);       //determine the length of the string
+    for(i=0;i<n;i++)        //loop for the length of the string
+    {
+        dataWrite(temp[i]);
+    }
+}
+void start_Menu(void)
+{
+    char str1[] = "12:00:00 AM";
+    char str2[] = "ALARM OFF";
+    char str3[] = "12:00 AM";
+    char str4[] = "00.0 F";
+
+    commandWrite(1);        //clear display
+    delay_ms(1);
+
+    commandWrite(0x82);     //starting address to display string 1 on line 1 (0x80 + LCD Address in hex)
+    write_String(str1);
+
+    commandWrite(0xC4);     //starting address to display string 2 on line 2
+    write_String(str2);
+
+    commandWrite(0x95);     //starting address to display string 3 on line 3
+    write_String(str3);
+
+    commandWrite(0xD7);     //starting address to display string 4 on line 4
+    write_String(str4);
+}
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
