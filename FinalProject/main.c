@@ -120,12 +120,19 @@ void main(void)
 {
 	WDT_A->CTL = WDT_A_CTL_PW | WDT_A_CTL_HOLD;		// stop watchdog timer
 
+	__disable_interrupt();
+
 	init_SysTick();
     init_Switches();
 	init_LEDs();
 	init_LCD();
 	init_RTC();
+<<<<<<< HEAD
 	init_adc();
+=======
+	init_adc();
+
+>>>>>>> branch 'master' of https://github.com/CBremmeyr/egr226_final.git
 	__enable_interrupt();
 
 	start_Menu();                   //sends starting layout to the LCD (******this function could potentially be combined with init_LCD()*******)
@@ -163,7 +170,7 @@ void main(void)
 	    }
 }
 
-void init_SysTick(void)             //reset and enable SysTick timer
+void init_SysTick(void)             //reset and enable SysTick timer, no interrupt
 {
    SysTick->CTRL = 0;
    SysTick->LOAD = (MS - 1);
@@ -205,7 +212,11 @@ void init_RTC(void)
     RTC_C->CTL13 = 0;               //????? what does this register do
 
     NVIC_EnableIRQ(RTC_C_IRQn);     //enable RTC interrupt handler
+<<<<<<< HEAD
 }
+=======
+}
+>>>>>>> branch 'master' of https://github.com/CBremmeyr/egr226_final.git
 
 /**
  * Set up analog input A0 & A1
