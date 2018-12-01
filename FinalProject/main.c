@@ -1,4 +1,4 @@
-==/*  -------------------------------------------------------------------------------------------------------------------------
+/*  -------------------------------------------------------------------------------------------------------------------------
 *   Author(s):      Nicholas Veltema & Corbin Bremmeyr
 *   Date:           November 18, 2018
 *   Class:          EGR226-908
@@ -59,10 +59,7 @@ void init_RTC(void);
 void init_LEDs(void);
 void init_LCD(void);
 void init_Switches(void);
-<<<<<<< HEAD
-=======
 void init_adc(void);
->>>>>>> branch 'master' of https://github.com/CBremmeyr/egr226_final.git
 void start_Menu(void);
 void delay_ms(uint16_t delay);
 void delay_micro(uint8_t delay);
@@ -123,15 +120,15 @@ void main(void)
 {
 	WDT_A->CTL = WDT_A_CTL_PW | WDT_A_CTL_HOLD;		// stop watchdog timer
 
+	__disable_interrupt();
+
 	init_SysTick();
     init_Switches();
 	init_LEDs();
 	init_LCD();
-<<<<<<< HEAD
 	init_RTC();
-=======
 	init_adc();
->>>>>>> branch 'master' of https://github.com/CBremmeyr/egr226_final.git
+
 	__enable_interrupt();
 
 	start_Menu();                   //sends starting layout to the LCD (******this function could potentially be combined with init_LCD()*******)
@@ -212,9 +209,6 @@ void init_RTC(void)
 
     NVIC_EnableIRQ(RTC_C_IRQn);     //enable RTC interrupt handler
 }
-<<<<<<< HEAD
-
-=======
 
 /**
  * Set up analog input A0 & A1
@@ -263,7 +257,6 @@ void ADC14_IRQHandler(void) {
  * Interrupts every second to increment current time
  */
 void RTC_C_IRQHandler()
->>>>>>> branch 'master' of https://github.com/CBremmeyr/egr226_final.git
 {
     if(RTC_C->PS1CTL & BIT0)                           // PS1 Interrupt Happened
     {
