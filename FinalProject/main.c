@@ -92,7 +92,7 @@ volatile int temperature_raw = -1;
 volatile int lcd_raw = -1;
 
 //Global variables for time tracking
-int hr = 0;
+int hr = 12;
 int min = 0;
 int sec = 0;
 
@@ -115,6 +115,8 @@ char alarm_xm[4] = " AM";
 
 int set_time_flag = 0;      //flag for moving thru set time
 int set_alarm_flag = 0;     //flag for moving thru set alarm
+int alarm_enable = 0;
+char alarm[10] = "ALARM OFF";
 
 void main(void)
 {
@@ -146,6 +148,16 @@ void main(void)
                     if(set_alarm_flag)       //if btn_setAlarm
                     {
                         state = Set_Alarm;
+                    }
+                    if(alarm_enable)
+                    {
+                        strcpy(alarm," ALARM ON");
+                        RTC_C->AMINHR |= BIT(15) | BIT(7);      //Enable Alarm: bit15 = enable hr alarm, bit7 = enable min alarm
+                    }
+                    else
+                    {
+                        strcpy(alarm,"ALARM OFF");
+                        RTC_C->AMINHR &= ~(BIT(15) | BIT(7));   //Disable Alarm
                     }
 	                break;
 
@@ -326,6 +338,9 @@ void update_time(void)
     write_String(seconds);
     commandWrite(0x8A);
     write_String(xm);
+
+    commandWrite(0xC4);     //starting address to display alarm status
+    write_String(alarm);
 }
 
 
@@ -497,6 +512,10 @@ void PORT3_IRQHandler()
     int flag = P3->IFG;             //store the port 3 interrupt flags
     P3->IFG = 0;                    //clear port 3 interrupt flags
 
+        if((flag & BIT6) && (set_time_flag == 0))
+        {
+            alarm_enable ^= BIT0;
+        }
         //for set time
         if((flag & BIT6) && (set_time_flag == 1))   //if btn_up and set hours
         {
