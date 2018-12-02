@@ -108,8 +108,8 @@ char seconds[3] = "00";
 char xm[4] = " AM";
 
 //Global strings for displaying alarm time
-char alarm_hours[2];
-char alarm_minutes[2];
+char alarm_hours[3] = "12";
+char alarm_minutes[2] = "00";
 char alarm_seconds[2];
 char alarm_xm[4] = " AM";
 
@@ -127,12 +127,7 @@ void main(void)
 	init_LEDs();
 	init_LCD();
 	init_RTC();
-<<<<<<< HEAD
 	init_adc();
-=======
-	init_adc();
-
->>>>>>> branch 'master' of https://github.com/CBremmeyr/egr226_final.git
 	__enable_interrupt();
 
 	start_Menu();                   //sends starting layout to the LCD (******this function could potentially be combined with init_LCD()*******)
@@ -203,8 +198,8 @@ void init_RTC(void)
     RTC_C->TIM0 = 00<<8 | 00;       //00 min, 00 secs
     RTC_C->TIM1 = 0;               //12 am        (Might need to have day?? 1<<8 | 24;)
 //    RTC_C->YEAR = 2018;
-    //Alarm at 2:46 pm
-//    RTC_C->AMINHR = 14<<8 | 46 | BIT(15) | BIT(7);  //bit 15 and 7 are Alarm Enable bits
+    //Initialize Alarm at 12:00 AM
+    RTC_C->AMINHR = 0;// | BIT(15) | BIT(7);  //bit 15(enable hr alarm) and 7(enable min alarm) are Alarm Enable bits
 //    RTC_C->ADOWDAY = 0;
     RTC_C->PS1CTL = 0b11010;        //1 second interrupt
 
@@ -212,11 +207,9 @@ void init_RTC(void)
     RTC_C->CTL13 = 0;               //????? what does this register do
 
     NVIC_EnableIRQ(RTC_C_IRQn);     //enable RTC interrupt handler
-<<<<<<< HEAD
+
 }
-=======
-}
->>>>>>> branch 'master' of https://github.com/CBremmeyr/egr226_final.git
+
 
 /**
  * Set up analog input A0 & A1
@@ -284,13 +277,16 @@ void update_time(void)
     if(RTC_C->TIM1 == 0)            //if hours equal zero time is 12am
     {
         hr = 12;
-        strcpy(xm, " AM");
     }
     if(RTC_C->TIM1 > 11)            //if hours are greater than 11 time is pm
     {
         strcpy(xm, " PM");
     }
-    if(RTC_C->TIM1 > 12)            //if hours are greater than 12 convert to 12hr format
+    else
+    {
+        strcpy(xm, " AM");
+    }
+    if(hr > 12)            //if hours are greater than 12 convert to 12hr format
     {
         hr = hr - 12;
     }
@@ -342,13 +338,16 @@ void set_time(void)
         if(RTC_C->TIM1 == 0)            //if hours equal zero time is 12am
         {
             hr = 12;
-            strcpy(xm, " AM");
         }
         if(RTC_C->TIM1 > 11)            //if hours are greater than 11 time is pm
         {
             strcpy(xm, " PM");
         }
-        if(RTC_C->TIM1 > 12)            //if hours are greater than 12 convert to 12hr format
+        else
+        {
+            strcpy(xm, " AM");
+        }
+        if(hr > 12)            //if hours are greater than 12 convert to 12hr format
         {
             hr = hr - 12;
         }
@@ -394,6 +393,23 @@ void set_alarm(void)
 
     while(set_alarm_flag == 1)      //while btn_setTime has not been pressed again flash hours
     {
+        if(((RTC_C->AMINHR & 0xFF00)>>8) == 0)            //if hours equal zero time is 12am ((RTC_C->AMINHR & 0xFF00)>>8)
+        {
+            alarm_hr = 12;
+
+        }
+        if(((RTC_C->AMINHR & 0xFF00)>>8) > 11)            //if hours are greater than 11 time is pm
+        {
+            strcpy(alarm_xm, " PM");
+        }
+        else
+        {
+            strcpy(alarm_xm, " AM");
+        }
+        if(alarm_hr > 12)            //if hours are greater than 12 convert to 12hr format
+        {
+            alarm_hr = alarm_hr - 12;
+        }
         if(alarm_hr < 10)                           //if current alarm hour count is only one character
         {
             sprintf(alarm_hours," %d",alarm_hr);    //put the integer alarm hour count into the alarm hours string with a leading space
@@ -528,14 +544,14 @@ void PORT3_IRQHandler()
         if((flag & BIT6) && (set_alarm_flag == 1))  //if btn_up and set alarm
         {
             RTC_C->AMINHR += (1<<8);                       //add one hour to alarm time
-            if((RTC_C->AMINHR & 0xFF00) == 24)
+            if(((RTC_C->AMINHR & 0xFF00)>>8) == 24)
             {
                 RTC_C->AMINHR = (RTC_C->AMINHR & 0x00FF);   //restart alarm hour count, keep alarm minute count
             }
         }
         if((flag & BIT5) && (set_alarm_flag == 1))  //if btn_down and set alarm
         {
-            if((RTC_C->AMINHR & 0xFF00) == 0)
+            if(((RTC_C->AMINHR & 0xFF00)>>8) == 0)
             {
                 RTC_C->AMINHR = ((23<<8) | (RTC_C->AMINHR & 0x00FF));   //set alarm hours to 23, keep alarm minute count
             }
