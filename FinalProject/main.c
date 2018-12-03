@@ -7,7 +7,7 @@
 *   -------------------------------------------------------------------------------------------------------------------------
 *   P5.5 (A0) Analog input for screen brightness
 *   P5.4 (A1) Analog input for temp
-*   P5.1 Alarm Speaker
+*   P6.7 Alarm Speaker PWM (TA2.4)
 *   P2.7 (TA0.4) LED PWM
 *   P2.6 Screen Brightness PWM
 *
@@ -74,7 +74,7 @@ void update_time(void);
 void write_String(char temp[]);
 void debounce1(uint8_t pin, uint32_t len);
 void debounce2(uint8_t pin, uint32_t len);
-
+void init_Speaker(void);
 
 enum states{
     Idle,
@@ -113,6 +113,9 @@ char alarm_minutes[2] = "00";
 char alarm_seconds[2];
 char alarm_xm[4] = " AM";
 
+int btnup_flag = 0;
+int btndown_flag = 0;
+
 int set_time_flag = 0;      //flag for moving thru set time
 int set_alarm_flag = 0;     //flag for moving thru set alarm
 int alarm_enable = 0;
@@ -120,26 +123,43 @@ char alarm[10] = "ALARM OFF";
 
 void main(void)
 {
-	WDT_A->CTL = WDT_A_CTL_PW | WDT_A_CTL_HOLD;		// stop watchdog timer
+    WDT_A->CTL = WDT_A_CTL_PW | WDT_A_CTL_HOLD;     // stop watchdog timer
 
-	__disable_interrupt();
+    __disable_interrupt();
 
-	init_SysTick();
+    init_SysTick();
     init_Switches();
-	init_LEDs();
-	init_LCD();
-	init_RTC();
-	init_adc();
-	__enable_interrupt();
+    init_Speaker();
+    init_LEDs();
+    init_LCD();
+    init_RTC();
+    init_adc();
+    __enable_interrupt();
 
-	start_Menu();                   //sends starting layout to the LCD (******this function could potentially be combined with init_LCD()*******)
-	enum states state = Idle;
-	    while(1)
-	    {
-	        update_time();          //update current time displayed each time through the loop
-	        switch(state)
-	            {
-	            case Idle:
+    start_Menu();                   //sends starting layout to the LCD (******this function could potentially be combined with init_LCD()*******)
+    enum states state = Idle;
+        while(1)
+        {
+            update_time();          //update current time displayed each time through the loop
+            switch(state)
+                {
+                case Idle:
+
+                    if(btnup_flag)
+                    {
+                        alarm_enable ^= BIT0;
+                        btnup_flag = 0;
+                        if(alarm_enable)
+                        {
+                            strcpy(alarm," ALARM ON");
+                            RTC_C->AMINHR |= BIT(15) | BIT(7);      //Enable Alarm: bit15 = enable hr alarm, bit7 = enable min alarm
+                        }
+                        else
+                        {
+                            strcpy(alarm,"ALARM OFF");
+                            RTC_C->AMINHR &= ~(BIT(15) | BIT(7));   //Disable Alarm
+                        }
+                    }
 
                     if(set_time_flag)        //if btn_setTime
                     {
@@ -151,21 +171,18 @@ void main(void)
                     }
                     if(alarm_enable)
                     {
-                        strcpy(alarm," ALARM ON");
-                        RTC_C->AMINHR |= BIT(15) | BIT(7);      //Enable Alarm: bit15 = enable hr alarm, bit7 = enable min alarm
+                        if(((((RTC_C->TIM1 & 0x00FF)<<8) | ((RTC_C->TIM0 & 0xFF00)>>8)) + 5) >= (RTC_C->AMINHR & ~(BIT(15)|BIT(7))))    //if 5 min before alarm time
+                        {
+                                state = Wake_Up;
+                        }
                     }
-                    else
-                    {
-                        strcpy(alarm,"ALARM OFF");
-                        RTC_C->AMINHR &= ~(BIT(15) | BIT(7));   //Disable Alarm
-                    }
-	                break;
+                    break;
 
-	            case Set_Time:
-	                set_time();                 //stays in function set_time until current time configuration is complete
-	                state = Idle;
-	                set_time_flag = 0;          //reset flag after time configuration is complete
-	                break;
+                case Set_Time:
+                    set_time();                 //stays in function set_time until current time configuration is complete
+                    state = Idle;
+                    set_time_flag = 0;          //reset flag after time configuration is complete
+                    break;
 
                 case Set_Alarm:
                     set_alarm();                //stays in function set_alarm until alarm time configuration is complete
@@ -173,8 +190,76 @@ void main(void)
                     set_alarm_flag = 0;         //reset flag after alarm time configuration is complete
                     break;
 
-	            }
-	    }
+                case Wake_Up:
+                    //TODO: add wake up light functionality here
+
+                    if(btnup_flag)
+                    {
+                        alarm_enable = 0;
+                        strcpy(alarm,"ALARM OFF");
+                        RTC_C->AMINHR &= ~(BIT(15) | BIT(7));   //Disable Alarm
+
+                        //TODO: turn off LEDs (set duty cycle back to zero)
+
+                        state = Idle;
+                        btnup_flag = 0;
+                    }
+                    if(alarm_enable)
+                    {
+                        if((((RTC_C->TIM1 & 0x00FF)<<8) | ((RTC_C->TIM0 & 0xFF00)>>8)) >= (RTC_C->AMINHR & ~(BIT(15)|BIT(7))))    //if alarm time
+                        {
+                                state = Alarm;
+                        }
+                    }
+
+                    break;
+
+                case Alarm:
+                    //TODO: LCD to Full brightness
+                    TIMER_A2->CCR[4] ^= (BIT5|BIT4|BIT1);  //toggle 50% duty cycle
+                    delay_ms(1000);
+
+                    if(btnup_flag)
+                    {
+                        TIMER_A2->CCR[4] = 0;
+                        alarm_enable = 0;
+                        strcpy(alarm,"ALARM OFF");
+                        RTC_C->AMINHR &= ~(BIT(15) | BIT(7));   //Disable Alarm
+                        //TODO: LCD back to set brightness, LEDs off
+                        btnup_flag = 0;
+                        state = Idle;
+                    }
+                    if(btndown_flag)
+                    {
+                        TIMER_A2->CCR[4] = 0;
+                        strcpy(alarm,"   SNOOZE");
+                        //TODO: add 10 minutes to alarm time
+                        btndown_flag = 0;
+                        state = Snooze;
+                    }
+                    break;
+
+                case Snooze:
+
+                    if((((RTC_C->TIM1 & 0x00FF)<<8) | ((RTC_C->TIM0 & 0xFF00)>>8)) >= (RTC_C->AMINHR & ~(BIT(15)|BIT(7))))    //if new alarm time
+                    {
+                        TIMER_A2->CCR[4] ^= (BIT5|BIT4|BIT1);  //toggle 50% duty cycle
+                        delay_ms(1000);
+                    }
+
+                    if(btnup_flag)
+                    {
+                        TIMER_A2->CCR[4] = 0;
+                        alarm_enable = 0;
+                        strcpy(alarm,"ALARM OFF");
+                        RTC_C->AMINHR &= ~(BIT(15) | BIT(7));   //Disable Alarm
+                        //TODO: LCD back to set brightness, LEDs off
+                        btnup_flag = 0;
+                        state = Idle;
+                    }
+                    break;
+                }
+        }
 }
 
 void init_SysTick(void)             //reset and enable SysTick timer, no interrupt
@@ -206,22 +291,17 @@ void init_RTC(void)
 {
     RTC_C->CTL0 = (0xA500);         //unlock RTC clock
     RTC_C->CTL13 = 0;               //????? what does this register do
+    RTC_C->TIM0 = 0;                //load zero minutes and zero seconds (00:00)
+    RTC_C->TIM1 = 0;                //load zero hours, 12am (12:00:00 AM)
 
-    RTC_C->TIM0 = 00<<8 | 00;       //00 min, 00 secs
-    RTC_C->TIM1 = 0;               //12 am        (Might need to have day?? 1<<8 | 24;)
-//    RTC_C->YEAR = 2018;
-    //Initialize Alarm at 12:00 AM
-    RTC_C->AMINHR = 0;// | BIT(15) | BIT(7);  //bit 15(enable hr alarm) and 7(enable min alarm) are Alarm Enable bits
-//    RTC_C->ADOWDAY = 0;
+    RTC_C->AMINHR = 0;              //load 12am into alarm (12:00 AM)
+
     RTC_C->PS1CTL = 0b11010;        //1 second interrupt
-
     RTC_C->CTL0 = (0xA500) | BIT5;  //turn on interrupt
+
     RTC_C->CTL13 = 0;               //????? what does this register do
-
     NVIC_EnableIRQ(RTC_C_IRQn);     //enable RTC interrupt handler
-
 }
-
 
 /**
  * Set up analog input A0 & A1
@@ -271,13 +351,13 @@ void ADC14_IRQHandler(void) {
  */
 void RTC_C_IRQHandler()
 {
-    if(RTC_C->PS1CTL & BIT0)                           // PS1 Interrupt Happened
+    if(RTC_C->PS1CTL & BIT0)                //if RTC interrupt
     {
-        hr = RTC_C->TIM1 & 0x00FF;                   // Record hours (from bottom 8 bits of TIM1)
-        min = (RTC_C->TIM0 & 0xFF00) >> 8;             // Record minutes (from top 8 bits of TIM0)
-        sec = RTC_C->TIM0 & 0x00FF;                    // Record seconds (from bottom 8 bits of TIM0)
+        hr = RTC_C->TIM1 & 0x00FF;          //record hours (from bottom 8 bits of TIM1)
+        min = (RTC_C->TIM0 & 0xFF00) >> 8;  //record minutes (from top 8 bits of TIM0)
+        sec = RTC_C->TIM0 & 0x00FF;         //record seconds (from bottom 8 bits of TIM0)
 
-        RTC_C->PS1CTL &= ~BIT0;                         // Reset interrupt flag
+        RTC_C->PS1CTL &= ~BIT0;             //reset interrupt flag
     }
 }
 
@@ -350,10 +430,39 @@ void set_time(void)
 
     while(set_time_flag == 1)           //while btn_setTime has not been pressed again flash hours
     {
+        //if button up has been pressed
+        if(btnup_flag)
+        {
+            RTC_C->TIM1 += 1;                       //add one hour to current time
+            if(RTC_C->TIM1 == 24)                   //if hours need to rollover
+            {
+                RTC_C->TIM1 = 0;                    //reset hour count to zero
+            }
+            btnup_flag = 0;
+        }
+        //if button down has been pressed
+        if(btndown_flag)
+        {
+            if(RTC_C->TIM1 == 0)                    //if hours need to roll back
+            {
+                RTC_C->TIM1 = 23;                   //set hours to 23
+            }
+            else
+            {
+                RTC_C->TIM1 -= 1;                   //subtract one hour from current time
+            }
+            btndown_flag = 0;
+        }
+        //update global current time variables
         if(RTC_C->TIM1 == 0)            //if hours equal zero time is 12am
         {
             hr = 12;
         }
+        if(hr > 12)            //if hours are greater than 12 convert to 12hr format
+        {
+            hr = hr - 12;
+        }
+        //update global current time display strings
         if(RTC_C->TIM1 > 11)            //if hours are greater than 11 time is pm
         {
             strcpy(xm, " PM");
@@ -361,10 +470,6 @@ void set_time(void)
         else
         {
             strcpy(xm, " AM");
-        }
-        if(hr > 12)            //if hours are greater than 12 convert to 12hr format
-        {
-            hr = hr - 12;
         }
         if(hr < 10)                     //if current hour count is only one character
         {
@@ -374,6 +479,7 @@ void set_time(void)
         {
             sprintf(hours,"%d",hr);     //put the integer hour count into the hours string
         }
+        //update display
         commandWrite(0x82);
         write_String(temp);             //load temp string with spaces
         delay_ms(500);                  //delay half a second for blinking effect
@@ -385,6 +491,33 @@ void set_time(void)
     }
     while(set_time_flag == 2)   //while btn_setTime has not been pressed again flash minutes
     {
+        //if button up has been pressed
+        if(btnup_flag)
+        {
+            if(((RTC_C->TIM0 & 0xFF00)>>8) == 59)                           //if minute count needs to rollover
+            {
+                RTC_C->TIM0 = (0 | (RTC_C->TIM0 & 0x00FF));                  //restart minute count at zero, keep seconds count
+            }
+            else
+            {
+                RTC_C->TIM0 += (1<<8);                                     //add one minute to current time
+            }
+            btnup_flag = 0;
+        }
+        //if button down has been pressed
+        if(btndown_flag)
+        {
+            if((RTC_C->TIM0 & 0xFF00) == 0)                            //if minute count needs to roll back
+            {
+                RTC_C->TIM0 = ((59<<8) | (RTC_C->TIM0 & 0x00FF));       //set minute count to 59, keep seconds count
+            }
+            else
+            {
+                RTC_C->TIM0 -= (1<<8);                                  //subtract one minute from current time
+            }
+            btndown_flag = 0;
+        }
+        //update global current time display strings
         if(min < 10)                    //if current minute count is only one character
         {
             sprintf(minutes,"0%d",min); //put the integer minute count into the minutes string with a leading zero
@@ -393,6 +526,7 @@ void set_time(void)
         {
             sprintf(minutes,"%d",min);  //put the integer minute count into the minutes string
         }
+        //update display
         commandWrite(0x85);
         write_String(temp);             //load temp string with spaces
         delay_ms(500);                  //delay half second for blinking effect
@@ -408,11 +542,41 @@ void set_alarm(void)
 
     while(set_alarm_flag == 1)      //while btn_setTime has not been pressed again flash hours
     {
+        //if button up has been pressed
+        if(btnup_flag)
+        {
+            RTC_C->AMINHR += (1<<8);                       //add one hour to alarm time
+            if(((RTC_C->AMINHR & 0xFF00)>>8) == 24)
+            {
+                RTC_C->AMINHR = (RTC_C->AMINHR & 0x00FF);   //restart alarm hour count, keep alarm minute count
+            }
+            btnup_flag = 0;
+        }
+        //if button down has been pressed
+        if(btndown_flag)
+        {
+            if(((RTC_C->AMINHR & 0xFF00)>>8) == 0)
+            {
+                RTC_C->AMINHR = ((23<<8) | (RTC_C->AMINHR & 0x00FF));   //set alarm hours to 23, keep alarm minute count
+            }
+            else
+            {
+                RTC_C->AMINHR -= (1<<8);                   //subtract one hour from alarm time
+            }
+            btndown_flag = 0;
+        }
+        //update global alarm time variables
+        alarm_hr = (RTC_C->AMINHR & 0xFF00) >> 8;
         if(((RTC_C->AMINHR & 0xFF00)>>8) == 0)            //if hours equal zero time is 12am ((RTC_C->AMINHR & 0xFF00)>>8)
         {
             alarm_hr = 12;
 
         }
+        if(alarm_hr > 12)            //if hours are greater than 12 convert to 12hr format
+        {
+            alarm_hr = alarm_hr - 12;
+        }
+        //update global alarm time display strings
         if(((RTC_C->AMINHR & 0xFF00)>>8) > 11)            //if hours are greater than 11 time is pm
         {
             strcpy(alarm_xm, " PM");
@@ -420,10 +584,6 @@ void set_alarm(void)
         else
         {
             strcpy(alarm_xm, " AM");
-        }
-        if(alarm_hr > 12)            //if hours are greater than 12 convert to 12hr format
-        {
-            alarm_hr = alarm_hr - 12;
         }
         if(alarm_hr < 10)                           //if current alarm hour count is only one character
         {
@@ -433,6 +593,7 @@ void set_alarm(void)
         {
             sprintf(alarm_hours,"%d",alarm_hr);     //put the integer alarm hour count into the alarm hours string
         }
+        //update display
         commandWrite(0x95);
         write_String(temp);                         //load temp string with spaces
         delay_ms(500);                              //delay half second for blinking effect
@@ -444,6 +605,31 @@ void set_alarm(void)
     }
     while(set_alarm_flag == 2)   //while btn_setTime has not been pressed again flash minutes
     {
+        //if button up has been pressed
+        if(btnup_flag)
+        {
+            RTC_C->AMINHR += 1;                                     //add one minute to alarm time
+            if((RTC_C->AMINHR & 0x00FF) == 60)                           //if alarm minute count needs to rollover
+            {
+                RTC_C->AMINHR = (RTC_C->AMINHR & 0xFF00);                  //restart alarm minute count, keep alarm hour count
+            }
+            btnup_flag = 0;
+        }
+        //if button down has been pressed
+        if(btndown_flag)
+        {
+            if((RTC_C->AMINHR & 0x00FF) == 0)                            //if alarm minute count needs to roll back
+            {
+                RTC_C->AMINHR = ((RTC_C->AMINHR & 0xFF00) | 59);       //set alarm minute count to 59, keep alarm hour count
+            }
+            else
+            {
+                RTC_C->AMINHR -= 1;                                  //subtract one minute from alarm time
+            }
+            btndown_flag = 0;
+        }
+        //update global alarm time display strings
+        alarm_min = (RTC_C->AMINHR & 0x00FF);
         if(alarm_min < 10)                          //if current alarm minute count is only one character
         {
             sprintf(alarm_minutes,"0%d",alarm_min); //put the integer alarm minutes count into the alarm minutes string with a leading zero
@@ -452,6 +638,7 @@ void set_alarm(void)
         {
             sprintf(alarm_minutes,"%d",alarm_min);  //put the integer alarm minutes count into the alarm minutes string
         }
+        //update display
         commandWrite(0x98);
         write_String(temp);                         //load temp string with spaces
         delay_ms(500);                              //delay half second for blinking effect
@@ -512,98 +699,17 @@ void PORT3_IRQHandler()
     int flag = P3->IFG;             //store the port 3 interrupt flags
     P3->IFG = 0;                    //clear port 3 interrupt flags
 
-        if((flag & BIT6) && (set_time_flag == 0))
+        if(flag & BIT6)         //if btnup pressed
         {
-            alarm_enable ^= BIT0;
-        }
-        //for set time
-        if((flag & BIT6) && (set_time_flag == 1))   //if btn_up and set hours
-        {
-            RTC_C->TIM1 += 1;                       //add one hour to current time
-            if(RTC_C->TIM1 == 24)                   //if hours need to rollover
-            {
-                RTC_C->TIM1 = 0;                    //reset hour count to zero
-            }
-        }
-        if((flag & BIT5) && (set_time_flag == 1))   //if btn_down and set hours
-        {
-            if(RTC_C->TIM1 == 0)                    //if hours need to roll back
-            {
-                RTC_C->TIM1 = 23;                   //set hours to 23
-            }
-            else
-            {
-                RTC_C->TIM1 -= 1;                   //subtract one hour from current time
-            }
-        }
-        if((flag & BIT6) && (set_time_flag == 2))   //if btn_up and set minutes
-        {
-            if(((RTC_C->TIM0 & 0xFF00)>>8) == 59)                           //if minute count needs to rollover
-            {
-                RTC_C->TIM0 = (0 | (RTC_C->TIM0 & 0x00FF));                  //restart minute count at zero, keep seconds count
-            }
-            else
-            {
-                RTC_C->TIM0 += (1<<8);                                     //add one minute to current time
-            }
-        }
-        if((flag & BIT5) && (set_time_flag == 2))   //if btn_down and set minutes
-        {
-            if((RTC_C->TIM0 & 0xFF00) == 0)                            //if minute count needs to roll back
-            {
-                RTC_C->TIM0 = ((59<<8) | (RTC_C->TIM0 & 0x00FF));       //set minute count to 59, keep seconds count
-            }
-            else
-            {
-                RTC_C->TIM0 -= (1<<8);                                  //subtract one minute from current time
-            }
+            btnup_flag = 1;
         }
 
-        //for set alarm//    RTC_C->AMINHR = 14<<8 | 46 | BIT(15) | BIT(7);  //bit 15 and 7 are Alarm Enable bits
-        if((flag & BIT6) && (set_alarm_flag == 1))  //if btn_up and set alarm
+        if(flag & BIT5)         //if btndown pressed
         {
-            RTC_C->AMINHR += (1<<8);                       //add one hour to alarm time
-            if(((RTC_C->AMINHR & 0xFF00)>>8) == 24)
-            {
-                RTC_C->AMINHR = (RTC_C->AMINHR & 0x00FF);   //restart alarm hour count, keep alarm minute count
-            }
+            btndown_flag = 1;
         }
-        if((flag & BIT5) && (set_alarm_flag == 1))  //if btn_down and set alarm
-        {
-            if(((RTC_C->AMINHR & 0xFF00)>>8) == 0)
-            {
-                RTC_C->AMINHR = ((23<<8) | (RTC_C->AMINHR & 0x00FF));   //set alarm hours to 23, keep alarm minute count
-            }
-            else
-            {
-                RTC_C->AMINHR -= (1<<8);                   //subtract one hour from alarm time
-            }
-        }
-        if((flag & BIT6) && (set_alarm_flag == 2))  //if btn_up and set alarm
-        {
-            RTC_C->AMINHR += 1;                                     //add one minute to alarm time
-            if((RTC_C->AMINHR & 0x00FF) == 60)                           //if alarm minute count needs to rollover
-            {
-                RTC_C->AMINHR = (RTC_C->AMINHR & 0xFF00);                  //restart alarm minute count, keep alarm hour count
-            }
-        }
-        if((flag & BIT5) && (set_alarm_flag == 2))  //if btn_down and set alarm
-        {
-            if((RTC_C->AMINHR & 0x00FF) == 0)                            //if alarm minute count needs to roll back
-            {
-                RTC_C->AMINHR = ((RTC_C->AMINHR & 0xFF00) | 59);       //set alarm minute count to 59, keep alarm hour count
-            }
-            else
-            {
-                RTC_C->AMINHR -= 1;                                  //subtract one minute from alarm time
-            }
-        }
-//        hr = RTC_C->TIM1 & 0x00FF;                   // Record hours (from bottom 8 bits of TIM1)
-//        min = (RTC_C->TIM0 & 0xFF00) >> 8;             // Record minutes (from top 8 bits of TIM0)
-//        sec = RTC_C->TIM0 & 0x00FF;                    // Record seconds (from bottom 8 bits of TIM0)
 
-        alarm_hr = (RTC_C->AMINHR & 0xFF00) >> 8;
-        alarm_min = (RTC_C->AMINHR & 0x00FF);
+
 }
 void PORT4_IRQHandler()
 {
@@ -768,40 +874,15 @@ void start_Menu(void)
     write_String(str4);
 }
 
+void init_Speaker(void)
+{
+    P6->SEL0 |= BIT7;
+    P6->SEL1 &= ~BIT7;
+    P6->DIR |= BIT7;
+    P6->OUT &= ~BIT7;
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
+    TIMER_A2->CCR[0] = 6810 - 1;        //approximately 440Hz
+    TIMER_A2->CCR[4] = 0;               //initialize off (0% duty cycle)
+    TIMER_A2->CCTL[4] = 0b11100000;     //0xE0  reset/set mode
+    TIMER_A2->CTL = 0b1000010100;       //no clock divider
+}
