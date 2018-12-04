@@ -75,6 +75,7 @@ void write_String(char temp[]);
 void debounce1(uint8_t pin, uint32_t len);
 void debounce2(uint8_t pin, uint32_t len);
 void init_Speaker(void);
+void init_Timer32(void);
 
 enum states{
     Idle,
@@ -134,6 +135,7 @@ void main(void)
     init_LCD();
     init_RTC();
     init_adc();
+    init_Timer32();
     __enable_interrupt();
 
     start_Menu();                   //sends starting layout to the LCD (******this function could potentially be combined with init_LCD()*******)
@@ -885,4 +887,25 @@ void init_Speaker(void)
     TIMER_A2->CCR[4] = 0;               //initialize off (0% duty cycle)
     TIMER_A2->CCTL[4] = 0b11100000;     //0xE0  reset/set mode
     TIMER_A2->CTL = 0b1000010100;       //no clock divider
+}
+
+void init_Timer32(void)
+{
+    TIMER32_1->CONTROL = 0b01100010;                    // set up but leave off - toggle BIT7 to turn on/off
+    NVIC_EnableIRQ(T32_INT1_IRQn);                      //enable Timer32 interrupts
+    TIMER32_1->LOAD = 9000000 - 1;                      //interrupt every 3 seconds for increasing wake up lights
+}
+
+void T32_INT1_IRQHandler(void)
+{
+    TIMER32_1->INTCLR = 1;                              //clear Timer32 interrupt flag
+    if(TIMER_A0->CCR[4] > 980)         //if LEDs should be at max brightness
+    {
+        TIMER_A0->CCR[4] = 1000 - 1;    //set LED duty cycle to 100%
+        TIMER32_1->CONTROL ^= BIT7;     //disable Timer32
+    }
+    else
+    {
+        TIMER_A0->CCR[4] += 10;         //add 1% to LED duty cycle
+    }
 }
