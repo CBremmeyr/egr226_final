@@ -9,7 +9,6 @@
 *   P5.4 (A1) Analog input for temp
 *   P6.7 Alarm Speaker PWM (TA2.4)
 *   P2.7 (TA0.4) LED PWM
-*   P2.6 Screen Brightness PWM
 *
 *   P2.5 LCD back light
 *   P6.4 LCD rs
@@ -76,6 +75,7 @@ void debounce1(uint8_t pin, uint32_t len);
 void debounce2(uint8_t pin, uint32_t len);
 void init_Speaker(void);
 void init_Timer32(void);
+void set_lcd_brightness(void);
 
 enum states{
     Idle,
@@ -216,7 +216,10 @@ void main(void)
                     break;
 
                 case Alarm:
-                    //TODO: LCD to Full brightness
+
+                    // LCD to Full brightness
+                    TIMER_A0->CCR[2] = 999;
+
                     TIMER_A2->CCR[4] ^= (BIT5|BIT4|BIT1);  //toggle 50% duty cycle for alarm speaker
                     delay_ms(1000);
 
@@ -270,6 +273,22 @@ void main(void)
         }
 }
 
+/**
+ * Converts raw value from the LCD pot to PWM value for TIMER_A.
+ */
+void set_lcd_brightness(void) {
+
+    // Convert raw ADC value to duty cycle %
+    // map x in 0 to 16383 to y in 0 to 100
+    // x/16383 = y/100
+//    int dc = lcd_raw * 100 / 16383;
+
+    // Set new duty cycle for LCD LED PWM
+//    TIMER_A0->CCR[2] = (dc * 10) - 1;
+
+    TIMER_A0->CCR[2] = (0.061039 * (float)lcd_raw) - 1;
+}
+
 void init_SysTick(void)             //reset and enable SysTick timer, no interrupt
 {
    SysTick->CTRL = 0;
@@ -290,6 +309,7 @@ void init_LEDs(void)
     //initialize TimerA0 for PWM at 3KHz
     //3KHz = 1000 clock cycles
     TIMER_A0->CCR[0] = 1000 - 1;
+    TIMER_A0->CCR[2] = 0;
     TIMER_A0->CCR[4] = 0;               //initialize LEDs off (0% duty cycle)
     TIMER_A0->CCTL[4] = 0b11100000;     //0xE0  reset/set mode
     TIMER_A0->CTL = 0b1000010100;       //no clock divider
@@ -905,10 +925,10 @@ void init_Timer32(void)
 void T32_INT1_IRQHandler(void)
 {
     TIMER32_1->INTCLR = 1;                              //clear Timer32 interrupt flag
-    if(TIMER_A0->CCR[4] > 980)         //if LEDs should be at max brightness
+    if(TIMER_A0->CCR[4] > 980)          //if LEDs should be at max brightness
     {
         TIMER_A0->CCR[4] = 1000 - 1;    //set LED duty cycle to 100%
-        TIMER32_1->CONTROL &= ~BIT7;     //disable Timer32
+        TIMER32_1->CONTROL &= ~BIT7;    //disable Timer32
     }
     else
     {
