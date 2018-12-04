@@ -49,6 +49,19 @@
 #define TOP_R_BTN 5
 #define TOP_RC_BTN 6
 
+// LCD time locations
+
+// Current time
+#define TIME_HR_LOC  0x82
+#define TIME_MIN_LOC 0x85
+#define TIME_SEC_LOC 0x88
+#define TIME_XM_LOC  0x8A
+
+// Alarm time
+#define ALARM_HR_LOC  0x95
+#define ALARM_MIN_LOC 0x98
+#define ALARM_XM-LOC  0x9A
+
 #define BOUNCE 200          // debounce button press for 10ms
 #define MS 3000             // 3000 clock cycles = 1ms
 #define US 3                // 3 clock cycles = 1us
@@ -140,137 +153,151 @@ void main(void)
 
     start_Menu();                   //sends starting layout to the LCD (******this function could potentially be combined with init_LCD()*******)
     enum states state = Idle;
-        while(1)
-        {
-            update_time();          //update current time displayed each time through the loop
-            switch(state)
+    while(1)
+    {
+        update_time();          //update current time displayed each time through the loop
+        switch(state)
+            {
+            case Idle:
+
+                if(btnup_flag)
                 {
-                case Idle:
-
-                    if(btnup_flag)
-                    {
-                        alarm_enable ^= BIT0;
-                        btnup_flag = 0;
-                        if(alarm_enable)
-                        {
-                            strcpy(alarm," ALARM ON");
-                            RTC_C->AMINHR |= BIT(15) | BIT(7);      //Enable Alarm: bit15 = enable hr alarm, bit7 = enable min alarm
-                        }
-                        else
-                        {
-                            strcpy(alarm,"ALARM OFF");
-                            RTC_C->AMINHR &= ~(BIT(15) | BIT(7));   //Disable Alarm
-                        }
-                    }
-
-                    if(set_time_flag)        //if btn_setTime
-                    {
-                        state = Set_Time;
-                    }
-                    if(set_alarm_flag)       //if btn_setAlarm
-                    {
-                        state = Set_Alarm;
-                    }
+                    alarm_enable ^= BIT0;
+                    btnup_flag = 0;
                     if(alarm_enable)
                     {
-                        if(((((RTC_C->TIM1 & 0x00FF)<<8) | ((RTC_C->TIM0 & 0xFF00)>>8)) + 5) >= (RTC_C->AMINHR & ~(BIT(15)|BIT(7))))    //if 5 min before alarm time
-                        {
-                                state = Wake_Up;
-                        }
+                        strcpy(alarm," ALARM ON");
+                        RTC_C->AMINHR |= BIT(15) | BIT(7);      //Enable Alarm: bit15 = enable hr alarm, bit7 = enable min alarm
                     }
-                    break;
-
-                case Set_Time:
-                    set_time();                 //stays in function set_time until current time configuration is complete
-                    state = Idle;
-                    set_time_flag = 0;          //reset flag after time configuration is complete
-                    break;
-
-                case Set_Alarm:
-                    set_alarm();                //stays in function set_alarm until alarm time configuration is complete
-                    state = Idle;
-                    set_alarm_flag = 0;         //reset flag after alarm time configuration is complete
-                    break;
-
-                case Wake_Up:
-                    TIMER32_1->CONTROL |= BIT7;     //enable Timer32
-
-                    if(btnup_flag)
+                    else
                     {
-                        alarm_enable = 0;
                         strcpy(alarm,"ALARM OFF");
-                        RTC_C->AMINHR &= ~(BIT(15) | BIT(7));   //disable alarm
-                        TIMER32_1->CONTROL &= ~BIT7;            //disable Timer32
-                        TIMER_A0->CCR[4] = 0;                   //set LED duty cycle to 0%
-                        state = Idle;
-                        btnup_flag = 0;
+                        RTC_C->AMINHR &= ~(BIT(15) | BIT(7));   //Disable Alarm
                     }
-                    if(alarm_enable)
+                }
+
+                if(set_time_flag)        //if btn_setTime
+                {
+                    state = Set_Time;
+                }
+                if(set_alarm_flag)       //if btn_setAlarm
+                {
+                    state = Set_Alarm;
+                }
+                if(alarm_enable)
+                {
+                    if(((((RTC_C->TIM1 & 0x00FF)<<8) | ((RTC_C->TIM0 & 0xFF00)>>8)) + 5) >= (RTC_C->AMINHR & ~(BIT(15)|BIT(7))))    //if 5 min before alarm time
                     {
-                        if((((RTC_C->TIM1 & 0x00FF)<<8) | ((RTC_C->TIM0 & 0xFF00)>>8)) >= (RTC_C->AMINHR & ~(BIT(15)|BIT(7))))    //if alarm time
-                        {
-                                state = Alarm;
-                        }
+                            state = Wake_Up;
                     }
+                }
+                break;
 
-                    break;
+            case Set_Time:
+                set_time();                 //stays in function set_time until current time configuration is complete
+                state = Idle;
+                set_time_flag = 0;          //reset flag after time configuration is complete
+                break;
 
-                case Alarm:
+            case Set_Alarm:
+                set_alarm();                //stays in function set_alarm until alarm time configuration is complete
+                state = Idle;
+                set_alarm_flag = 0;         //reset flag after alarm time configuration is complete
+                break;
 
-                    // LCD to Full brightness
-                    TIMER_A0->CCR[2] = 999;
+            case Wake_Up:
+                TIMER32_1->CONTROL |= BIT7;     //enable Timer32
 
+                if(btnup_flag)
+                {
+                    alarm_enable = 0;
+                    strcpy(alarm,"ALARM OFF");
+                    RTC_C->AMINHR &= ~(BIT(15) | BIT(7));   //disable alarm
+                    TIMER32_1->CONTROL &= ~BIT7;            //disable Timer32
+                    TIMER_A0->CCR[4] = 0;                   //set LED duty cycle to 0%
+                    state = Idle;
+                    btnup_flag = 0;
+                }
+                if(alarm_enable)
+                {
+                    if((((RTC_C->TIM1 & 0x00FF)<<8) | ((RTC_C->TIM0 & 0xFF00)>>8)) >= (RTC_C->AMINHR & ~(BIT(15)|BIT(7))))    //if alarm time
+                    {
+                            state = Alarm;
+                    }
+                }
+
+                break;
+
+            case Alarm:
+
+                // LCD to Full brightness
+                TIMER_A0->CCR[2] = 999;
+
+                TIMER_A2->CCR[4] ^= (BIT5|BIT4|BIT1);  //toggle 50% duty cycle for alarm speaker
+                delay_ms(1000);
+
+                if(btnup_flag)
+                {
+                    TIMER_A2->CCR[4] = 0;
+                    alarm_enable = 0;
+                    strcpy(alarm,"ALARM OFF");
+                    RTC_C->AMINHR &= ~(BIT(15) | BIT(7));   // Disable Alarm
+                    TIMER32_1->CONTROL &= ~BIT7;            // Disable Timer32
+                    TIMER_A0->CCR[4] = 0;                   // Set LED duty cycle to 0%
+                    set_lcd_brightness();                   // Set LCD brightness to pot value
+                    btnup_flag = 0;
+                    state = Idle;
+                }
+                if(btndown_flag)
+                {
+                    TIMER_A2->CCR[4] = 0;
+                    strcpy(alarm,"   SNOOZE");
+                    RTC_C->AMINHR += 10;                //add 10 minutes to alarm time for snooze
+                    update_alarm_lcd();
+                    btndown_flag = 0;
+                    state = Snooze;
+                }
+                break;
+
+            case Snooze:
+
+                if((((RTC_C->TIM1 & 0x00FF)<<8) | ((RTC_C->TIM0 & 0xFF00)>>8)) >= (RTC_C->AMINHR & ~(BIT(15)|BIT(7))))    //if new alarm time
+                {
                     TIMER_A2->CCR[4] ^= (BIT5|BIT4|BIT1);  //toggle 50% duty cycle for alarm speaker
                     delay_ms(1000);
-
-                    if(btnup_flag)
-                    {
-                        TIMER_A2->CCR[4] = 0;
-                        alarm_enable = 0;
-                        strcpy(alarm,"ALARM OFF");
-                        RTC_C->AMINHR &= ~(BIT(15) | BIT(7));   //Disable Alarm
-                        TIMER32_1->CONTROL &= ~BIT7;            //disable Timer32
-                        TIMER_A0->CCR[4] = 0;                   //set LED duty cycle to 0%
-                        //TODO: LCD back to set brightness
-                        btnup_flag = 0;
-                        state = Idle;
-                    }
-                    if(btndown_flag)
-                    {
-                        TIMER_A2->CCR[4] = 0;
-                        strcpy(alarm,"   SNOOZE");
-                        RTC_C->AMINHR += 10;                //add 10 minutes to alarm time for snooze
-                        //TODO: update display to new alarm time
-                        btndown_flag = 0;
-                        state = Snooze;
-                    }
-                    break;
-
-                case Snooze:
-
-                    if((((RTC_C->TIM1 & 0x00FF)<<8) | ((RTC_C->TIM0 & 0xFF00)>>8)) >= (RTC_C->AMINHR & ~(BIT(15)|BIT(7))))    //if new alarm time
-                    {
-                        TIMER_A2->CCR[4] ^= (BIT5|BIT4|BIT1);  //toggle 50% duty cycle for alarm speaker
-                        delay_ms(1000);
-                    }
-
-                    if(btnup_flag)
-                    {
-                        TIMER_A2->CCR[4] = 0;
-                        alarm_enable = 0;
-                        strcpy(alarm,"ALARM OFF");
-                        RTC_C->AMINHR &= ~(BIT(15) | BIT(7));   //Disable Alarm
-                        TIMER32_1->CONTROL &= ~BIT7;            //disable Timer32
-                        TIMER_A0->CCR[4] = 0;                   //set LED duty cycle to 0%
-                        RTC_C->AMINHR -= 10;                    //set snooze alarm time back to original alarm time
-                        //TODO: update display to original alarm time
-                        //TODO: LCD back to set brightness
-                        btnup_flag = 0;
-                        state = Idle;
-                    }
-                    break;
                 }
-        }
+
+                if(btnup_flag)
+                {
+                    TIMER_A2->CCR[4] = 0;
+                    alarm_enable = 0;
+                    strcpy(alarm,"ALARM OFF");
+                    RTC_C->AMINHR &= ~(BIT(15) | BIT(7));   //Disable Alarm
+                    TIMER32_1->CONTROL &= ~BIT7;            //disable Timer32
+                    TIMER_A0->CCR[4] = 0;                   //set LED duty cycle to 0%
+                    RTC_C->AMINHR -= 10;                    //set snooze alarm time back to original alarm time
+                    //TODO: update display to original alarm time
+                    //TODO: LCD back to set brightness
+                    btnup_flag = 0;
+                    state = Idle;
+                }
+                break;
+            }
+    }
+}
+
+/**
+ * Update Alarm time on LCD
+ */
+void update_alarm_lcd(void) {
+
+    // Write alarm time strings to LCD locations
+    commandWrite(ALARM_HR_LOC);
+    write_string(alarm_hours);
+    commandWrite(ALARM_MIN_LOC);
+    write_string(alarm_minutes);
+    commandWrite(ALARM_XM_LOC);
+    write_string(alarm_xm);
 }
 
 /**
