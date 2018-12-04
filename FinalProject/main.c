@@ -23,10 +23,10 @@
 *   P4.3 Button (back - bottom)
 *
 *   TODO:   - (DONE)PWM led's with wake-up functionality
-*           - Analog input
+*           - Analog input  --  issue: reading from 2 analog inputs
 *               - temperature
 *               - LCD display
-*           - Serial communication
+*           - Serial communication -- issue: everything xD
 *           - remove debounce from interrupts
 */
 
@@ -49,7 +49,7 @@
 #define TOP_R_BTN 5
 #define TOP_RC_BTN 6
 
-// LCD time locations
+// LCD string locations
 
 // Current time
 #define TIME_HR_LOC  0x82
@@ -61,6 +61,9 @@
 #define ALARM_HR_LOC  0x95
 #define ALARM_MIN_LOC 0x98
 #define ALARM_XM_LOC  0x9A
+
+// Temperature
+#define TEMP_LOC 0xD7
 
 #define BOUNCE 200          // debounce button press for 10ms
 #define MS 3000             // 3000 clock cycles = 1ms
@@ -90,6 +93,7 @@ void init_Speaker(void);
 void init_Timer32(void);
 void set_lcd_brightness(void);
 void update_alarm_lcd(void);
+void update_temperature(void);
 
 enum states{
     Idle,
@@ -292,6 +296,23 @@ void main(void)
 }
 
 /**
+ * Converts raw input and updates temperature on LCD
+ */
+void update_temperature(void) {
+
+    float temp;
+    char temp_str[] = "000.0";
+
+    // Convert raw value to *F
+    temp = 0.019958 * temperature_raw;
+
+    // Display temperature on LCD
+    sprintf(temp_str, "%.1f", temp);
+    commandWrite(TEMP_LOC);
+    write_String(temp_str);
+}
+
+/**
  * Update Alarm time on LCD
  */
 void update_alarm_lcd(void) {
@@ -391,8 +412,9 @@ void init_adc(void) {
  */
 void ADC14_IRQHandler(void) {
 
+    // Record and clear interrupt flags
     uint32_t irq_flags = ADC14->IFGR0;
-//    ADC14->IFGR0 = 0;                         TODO: Had to comment out this line in order to build??
+    ADC14->CLRIFGR0 |= 0x3;
 
     // Temperature (A1)
     if(irq_flags & 0x2) {
@@ -916,7 +938,7 @@ void start_Menu(void)
     char str1[] = "12:00:00 AM";
     char str2[] = "ALARM OFF";
     char str3[] = "12:00 AM";
-    char str4[] = "00.0 F";
+    char str4[] = "000.0 F";
 
     commandWrite(1);        //clear display
     delay_ms(1);
