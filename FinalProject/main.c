@@ -154,6 +154,7 @@ void main(void)
     init_RTC();
     init_adc();
     init_Timer32();
+
     __enable_interrupt();
 
     start_Menu();                   //sends starting layout to the LCD (******this function could potentially be combined with init_LCD()*******)
