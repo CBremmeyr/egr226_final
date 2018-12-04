@@ -193,16 +193,15 @@ void main(void)
                     break;
 
                 case Wake_Up:
-                    //TODO: add wake up light functionality here
+                    TIMER32_1->CONTROL |= BIT7;     //enable Timer32
 
                     if(btnup_flag)
                     {
                         alarm_enable = 0;
                         strcpy(alarm,"ALARM OFF");
-                        RTC_C->AMINHR &= ~(BIT(15) | BIT(7));   //Disable Alarm
-
-                        //TODO: turn off LEDs (set duty cycle back to zero)
-
+                        RTC_C->AMINHR &= ~(BIT(15) | BIT(7));   //disable alarm
+                        TIMER32_1->CONTROL &= ~BIT7;            //disable Timer32
+                        TIMER_A0->CCR[4] = 0;                   //set LED duty cycle to 0%
                         state = Idle;
                         btnup_flag = 0;
                     }
@@ -218,7 +217,7 @@ void main(void)
 
                 case Alarm:
                     //TODO: LCD to Full brightness
-                    TIMER_A2->CCR[4] ^= (BIT5|BIT4|BIT1);  //toggle 50% duty cycle
+                    TIMER_A2->CCR[4] ^= (BIT5|BIT4|BIT1);  //toggle 50% duty cycle for alarm speaker
                     delay_ms(1000);
 
                     if(btnup_flag)
@@ -227,7 +226,9 @@ void main(void)
                         alarm_enable = 0;
                         strcpy(alarm,"ALARM OFF");
                         RTC_C->AMINHR &= ~(BIT(15) | BIT(7));   //Disable Alarm
-                        //TODO: LCD back to set brightness, LEDs off
+                        TIMER32_1->CONTROL &= ~BIT7;            //disable Timer32
+                        TIMER_A0->CCR[4] = 0;                   //set LED duty cycle to 0%
+                        //TODO: LCD back to set brightness
                         btnup_flag = 0;
                         state = Idle;
                     }
@@ -245,7 +246,7 @@ void main(void)
 
                     if((((RTC_C->TIM1 & 0x00FF)<<8) | ((RTC_C->TIM0 & 0xFF00)>>8)) >= (RTC_C->AMINHR & ~(BIT(15)|BIT(7))))    //if new alarm time
                     {
-                        TIMER_A2->CCR[4] ^= (BIT5|BIT4|BIT1);  //toggle 50% duty cycle
+                        TIMER_A2->CCR[4] ^= (BIT5|BIT4|BIT1);  //toggle 50% duty cycle for alarm speaker
                         delay_ms(1000);
                     }
 
@@ -255,7 +256,9 @@ void main(void)
                         alarm_enable = 0;
                         strcpy(alarm,"ALARM OFF");
                         RTC_C->AMINHR &= ~(BIT(15) | BIT(7));   //Disable Alarm
-                        //TODO: LCD back to set brightness, LEDs off
+                        TIMER32_1->CONTROL &= ~BIT7;            //disable Timer32
+                        TIMER_A0->CCR[4] = 0;                   //set LED duty cycle to 0%
+                        //TODO: LCD back to set brightness
                         btnup_flag = 0;
                         state = Idle;
                     }
@@ -902,7 +905,7 @@ void T32_INT1_IRQHandler(void)
     if(TIMER_A0->CCR[4] > 980)         //if LEDs should be at max brightness
     {
         TIMER_A0->CCR[4] = 1000 - 1;    //set LED duty cycle to 100%
-        TIMER32_1->CONTROL ^= BIT7;     //disable Timer32
+        TIMER32_1->CONTROL &= ~BIT7;     //disable Timer32
     }
     else
     {
