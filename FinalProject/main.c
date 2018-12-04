@@ -23,7 +23,7 @@
 *   P4.2 Button (back - top)
 *   P4.3 Button (back - bottom)
 *
-*   TODO:   - PWM led's with wake-up functionality
+*   TODO:   - (DONE)PWM led's with wake-up functionality
 *           - Analog input
 *               - temperature
 *               - LCD display
@@ -236,7 +236,8 @@ void main(void)
                     {
                         TIMER_A2->CCR[4] = 0;
                         strcpy(alarm,"   SNOOZE");
-                        //TODO: add 10 minutes to alarm time
+                        RTC_C->AMINHR += 10;                //add 10 minutes to alarm time for snooze
+                        //TODO: update display to new alarm time
                         btndown_flag = 0;
                         state = Snooze;
                     }
@@ -258,6 +259,8 @@ void main(void)
                         RTC_C->AMINHR &= ~(BIT(15) | BIT(7));   //Disable Alarm
                         TIMER32_1->CONTROL &= ~BIT7;            //disable Timer32
                         TIMER_A0->CCR[4] = 0;                   //set LED duty cycle to 0%
+                        RTC_C->AMINHR -= 10;                    //set snooze alarm time back to original alarm time
+                        //TODO: update display to original alarm time
                         //TODO: LCD back to set brightness
                         btnup_flag = 0;
                         state = Idle;
