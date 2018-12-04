@@ -60,7 +60,7 @@
 // Alarm time
 #define ALARM_HR_LOC  0x95
 #define ALARM_MIN_LOC 0x98
-#define ALARM_XM-LOC  0x9A
+#define ALARM_XM_LOC  0x9A
 
 #define BOUNCE 200          // debounce button press for 10ms
 #define MS 3000             // 3000 clock cycles = 1ms
@@ -89,6 +89,7 @@ void debounce2(uint8_t pin, uint32_t len);
 void init_Speaker(void);
 void init_Timer32(void);
 void set_lcd_brightness(void);
+void update_alarm_lcd(void);
 
 enum states{
     Idle,
@@ -297,11 +298,11 @@ void update_alarm_lcd(void) {
 
     // Write alarm time strings to LCD locations
     commandWrite(ALARM_HR_LOC);
-    write_string(alarm_hours);
+    write_String(alarm_hours);
     commandWrite(ALARM_MIN_LOC);
-    write_string(alarm_minutes);
+    write_String(alarm_minutes);
     commandWrite(ALARM_XM_LOC);
-    write_string(alarm_xm);
+    write_String(alarm_xm);
 }
 
 /**
