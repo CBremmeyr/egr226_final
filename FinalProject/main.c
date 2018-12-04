@@ -267,17 +267,21 @@ void main(void)
                     delay_ms(1000);
                 }
 
+                // If alarm off btn was pressed
                 if(btnup_flag)
                 {
+                    // Turn off alarm
                     TIMER_A2->CCR[4] = 0;
                     alarm_enable = 0;
                     strcpy(alarm,"ALARM OFF");
-                    RTC_C->AMINHR &= ~(BIT(15) | BIT(7));   //Disable Alarm
-                    TIMER32_1->CONTROL &= ~BIT7;            //disable Timer32
-                    TIMER_A0->CCR[4] = 0;                   //set LED duty cycle to 0%
-                    RTC_C->AMINHR -= 10;                    //set snooze alarm time back to original alarm time
-                    //TODO: update display to original alarm time
-                    //TODO: LCD back to set brightness
+                    RTC_C->AMINHR &= ~(BIT(15) | BIT(7));   // Disable Alarm in RTC
+                    TIMER32_1->CONTROL &= ~BIT7;            // Disable Timer32 (wake-up lights)
+                    TIMER_A0->CCR[4] = 0;                   // Set LED duty cycle to 0% (wake-up lights)
+
+                    // Set alarm time to set value not snooze value
+                    RTC_C->AMINHR -= 10;
+                    update_alarm_lcd();
+                    set_lcd_brightness();
                     btnup_flag = 0;
                     state = Idle;
                 }
