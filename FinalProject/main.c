@@ -320,10 +320,19 @@ void update_temperature(void) {
  */
 void update_alarm_lcd(void) {
 //update global alarm time variables
-    alarm_hr = (RTC_C->AMINHR & 0xFF00) >> 8;
-    alarm_min = (RTC_C->AMINHR & 0x00FF);
+    if(alarm_enable)
+    {
+        alarm_hr = (RTC_C->AMINHR & 0xFF00 & ~BIT(15)) >> 8;
+        alarm_min = (RTC_C->AMINHR & 0x00FF & ~BIT7);
+    }
+    else
+    {
+        alarm_hr = (RTC_C->AMINHR & 0xFF00) >> 8;
+        alarm_min = (RTC_C->AMINHR & 0x00FF);
+    }
 
-    if(((RTC_C->AMINHR & 0xFF00)>>8) == 0)            //if hours equal zero time is 12am ((RTC_C->AMINHR & 0xFF00)>>8)
+
+    if(((RTC_C->AMINHR & 0xFF00 & ~BIT(15)) >> 8) == 0)            //if hours equal zero time is 12am ((RTC_C->AMINHR & 0xFF00)>>8)
     {
         alarm_hr = 12;
 
@@ -334,7 +343,7 @@ void update_alarm_lcd(void) {
     }
 
 //update global alarm time display strings
-    if(((RTC_C->AMINHR & 0xFF00)>>8) > 11)            //if hours are greater than 11 time is pm
+    if(((RTC_C->AMINHR & 0xFF00 & ~BIT(15)) >> 8) > 11)            //if hours are greater than 11 time is pm
     {
         strcpy(alarm_xm, " PM");
     }
