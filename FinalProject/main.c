@@ -162,6 +162,7 @@ void main(void)
     while(1)
     {
         update_time();          //update current time displayed each time through the loop
+        update_temperature();
         switch(state)
             {
             case Idle:
@@ -302,7 +303,7 @@ void main(void)
 void update_temperature(void) {
 
     float temp;
-    char temp_str[] = "000.0";
+    char temp_str[] = "00.0";
 
     // Convert raw value to *F
     temp = 0.019958 * temperature_raw;
@@ -435,10 +436,10 @@ void init_adc(void) {
     P5->SEL1 |= 0x30;
 
     ADC14->CTL0 = 0;
-    ADC14->CTL0 = 0x84200310;   // 0b 1000 0100 0010 0000 0000 0011 0001 0000 from lab 8
-    ADC14->CTL1 = 0x30;         // 0b 11 0000
+    ADC14->CTL0 = 0b10000100001000100000001100010000;   // 0b 1000 0100 0010 0000 0000 0011 0001 0000 from lab 8
+    ADC14->CTL1 = 0b110000;         // 0b 11 0000
     ADC14->MCTL[0] = 0;
-    ADC14->MCTL[1] = 0;
+    ADC14->MCTL[1] = 0 | BIT7;         //BIT7 signifies end of sequence (so ADC will not run conversions for channels 2 thru 31)
     ADC14->IER0 |= BIT0;
 
     // Enable ADC
@@ -461,7 +462,7 @@ void ADC14_IRQHandler(void) {
     }
 
     // LCD pot input
-    else if(irq_flags & 0x1) {
+    if(irq_flags & 0x1) {
         lcd_raw = ADC14->MEM[0];
     }
 }
@@ -480,6 +481,7 @@ void RTC_C_IRQHandler()
 
         RTC_C->PS1CTL &= ~BIT0;             //reset interrupt flag
     }
+    ADC14->CTL0 |= 0b1;                                 //start ADC Conversion
 }
 
 /*
@@ -977,7 +979,7 @@ void start_Menu(void)
     char str1[] = "12:00:00 AM";
     char str2[] = "ALARM OFF";
     char str3[] = "12:00 AM";
-    char str4[] = "000.0 F";
+    char str4[] = "00.0 F";
 
     commandWrite(1);        //clear display
     delay_ms(1);
