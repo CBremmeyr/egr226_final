@@ -134,6 +134,7 @@ char alarm_xm[4] = " AM";
 
 int btnup_flag = 0;
 int btndown_flag = 0;
+int btn_fastspeed = 0;
 
 int set_time_flag = 0;      //flag for moving thru set time
 int set_alarm_flag = 0;     //flag for moving thru set alarm
@@ -482,13 +483,19 @@ void ADC14_IRQHandler(void) {
  */
 void RTC_C_IRQHandler()
 {
+
     if(RTC_C->PS1CTL & BIT0)                //if RTC interrupt
     {
+        RTC_C->PS1CTL &= ~BIT0;             //reset interrupt flag
+        if(btn_fastspeed)
+        {
+            RTC_C->TIM0 += (1<<8);
+        }
         hr = RTC_C->TIM1 & 0x00FF;          //record hours (from bottom 8 bits of TIM1)
         min = (RTC_C->TIM0 & 0xFF00) >> 8;  //record minutes (from top 8 bits of TIM0)
         sec = RTC_C->TIM0 & 0x00FF;         //record seconds (from bottom 8 bits of TIM0)
 
-        RTC_C->PS1CTL &= ~BIT0;             //reset interrupt flag
+
     }
     ADC14->CTL0 |= 0b1;                                 //start ADC Conversion
 }
@@ -820,6 +827,24 @@ void init_Switches(void)
     P4->IES |= BIT1;
     P4->IE |= BIT1;
 
+    //initialize btn_normspeed on P4.2 with interrupt
+    P4->SEL0 &= ~BIT2;
+    P4->SEL1 &= ~BIT2;
+    P4->DIR &= ~BIT2;
+    P4->REN |= BIT2;
+    P4->OUT |= BIT2;
+    P4->IES |= BIT2;
+    P4->IE |= BIT2;
+
+    //initialize btn_fastspeed on P4.3 with interrupt
+    P4->SEL0 &= ~BIT3;
+    P4->SEL1 &= ~BIT3;
+    P4->DIR &= ~BIT3;
+    P4->REN |= BIT3;
+    P4->OUT |= BIT3;
+    P4->IES |= BIT3;
+    P4->IE |= BIT3;
+
     NVIC_EnableIRQ(PORT4_IRQn);     //initialize port 4 interrupt handler
     P4->IFG = 0;                    //clear port 4 interrupt flags
 //    delay_ms(5);                    //allow pins to stabilize before enabling system wide interrupts
@@ -856,6 +881,14 @@ void PORT4_IRQHandler()
     if(flag & BIT1)             //if btn_setAlarm
     {
         set_alarm_flag++;
+    }
+    if(flag & BIT2)
+    {
+        btn_fastspeed = 0;
+    }
+    if(flag & BIT3)
+    {
+        btn_fastspeed = 1;
     }
 }
 
