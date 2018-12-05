@@ -1015,6 +1015,7 @@ void init_Speaker(void)
     TIMER_A2->CCTL[4] = 0b11100000;     //0xE0  reset/set mode
     TIMER_A2->CTL = 0b1000010100;       //no clock divider
 }
+//test comment
 
 void init_Timer32(void)
 {
