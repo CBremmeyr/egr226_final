@@ -10,7 +10,7 @@
 *   P6.7 Alarm Speaker PWM (TA2.4)
 *   P2.7 (TA0.4) LED PWM
 *
-*   P2.5 LCD back light
+*   P2.6 LCD back light (TA0.3)
 *   P6.4 LCD rs
 *   P6.5 LCD en
 *   P2.0 - P2.3 LCD data
@@ -243,7 +243,7 @@ void main(void)
             case Alarm:
 
                 // LCD to Full brightness
-                TIMER_A0->CCR[2] = 1000 - 1;
+                TIMER_A0->CCR[3] = 1000 - 1;
 
                 TIMER_A2->CCR[4] ^= (BIT5|BIT4|BIT1);  //toggle 50% duty cycle for alarm speaker
                 delay_ms(1000);
@@ -391,9 +391,9 @@ void set_lcd_brightness(void) {
 //    int dc = lcd_raw * 100 / 16383;
 
     // Set new duty cycle for LCD LED PWM
-//    TIMER_A0->CCR[2] = (dc * 10) - 1;
+//    TIMER_A0->CCR[3] = (dc * 10) - 1;
 
-    TIMER_A0->CCR[2] = (0.061038 * (float)lcd_raw) - 1;
+    TIMER_A0->CCR[3] = (0.061038 * (float)lcd_raw) - 1;
 }
 
 void init_SysTick(void)             //reset and enable SysTick timer, no interrupt
@@ -927,8 +927,8 @@ void init_LCD(void)
     P2->DIR |= BIT5;
     P2->OUT |= BIT5;
 
-    TIMER_A0->CCR[2] = 1000-1;          //initialize LCD backlight to 100% duty cycle
-    TIMER_A0->CCTL[2] = 0b11100000;     //0xE0  reset/set mode
+    TIMER_A0->CCR[3] = 1000-1;          //initialize LCD backlight to 100% duty cycle
+    TIMER_A0->CCTL[3] = 0b11100000;     //0xE0  reset/set mode
 
     //RS on P6.4, Enable on P6.5
     P6->SEL0 &= ~(BIT4|BIT5);               //set P6.4 and P6.5 for GPIO
