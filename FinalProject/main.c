@@ -26,8 +26,10 @@
 *           - Analog input  --  issue: reading from 2 analog inputs
 *               - temperature
 *               - LCD display
-*           - Serial communication -- issue: everything xD
+*           - Serial communication
+*           - Time speed buttons
 *           - remove debounce from interrupts
+*               - Use timer32_0 to turn off button interrupt for 'DEBOUNCE' ms
 */
 
 #include "msp.h"
@@ -144,6 +146,7 @@ void main(void)
 {
     WDT_A->CTL = WDT_A_CTL_PW | WDT_A_CTL_HOLD;     // stop watchdog timer
 
+    // Setup system
     __disable_interrupt();
 
     init_SysTick();
@@ -1015,9 +1018,14 @@ void init_Speaker(void)
 
 void init_Timer32(void)
 {
-    TIMER32_1->CONTROL = 0b01100010;                    // set up but leave off - toggle BIT7 to turn on/off
-    NVIC_EnableIRQ(T32_INT1_IRQn);                      //enable Timer32 interrupts
-    TIMER32_1->LOAD = 9000000 - 1;                      //interrupt every 3 seconds for increasing wake up lights
+    TIMER32_1->CONTROL = 0b01100010;    // set up but leave off - toggle BIT7 to turn on/off
+    TIMER32_1->LOAD = 9000000 - 1;      //interrupt every 3 seconds for increasing wake up lights
+
+    // Timer32_0 for button debounce
+    TIMER32_0->CONTROL = 0b01100010;
+    TIMER32_0->LOAD = DEBOUNCE - 1;
+
+    NVIC_EnableIRQ(T32_INT1_IRQn);      //enable Timer32 interrupts
 }
 
 void T32_INT1_IRQHandler(void)
