@@ -163,6 +163,7 @@ void main(void)
     {
         update_time();          //update current time displayed each time through the loop
         update_temperature();
+        set_lcd_brightness();
         switch(state)
             {
             case Idle:
@@ -238,7 +239,7 @@ void main(void)
             case Alarm:
 
                 // LCD to Full brightness
-                TIMER_A0->CCR[2] = 999;
+                TIMER_A0->CCR[2] = 1000 - 1;
 
                 TIMER_A2->CCR[4] ^= (BIT5|BIT4|BIT1);  //toggle 50% duty cycle for alarm speaker
                 delay_ms(1000);
@@ -379,7 +380,7 @@ void set_lcd_brightness(void) {
     // Set new duty cycle for LCD LED PWM
 //    TIMER_A0->CCR[2] = (dc * 10) - 1;
 
-    TIMER_A0->CCR[2] = (0.061039 * (float)lcd_raw) - 1;
+    TIMER_A0->CCR[2] = (0.061038 * (float)lcd_raw) - 1;
 }
 
 void init_SysTick(void)             //reset and enable SysTick timer, no interrupt
@@ -402,7 +403,6 @@ void init_LEDs(void)
     //initialize TimerA0 for PWM at 3KHz
     //3KHz = 1000 clock cycles
     TIMER_A0->CCR[0] = 1000 - 1;
-    TIMER_A0->CCR[2] = 0;
     TIMER_A0->CCR[4] = 0;               //initialize LEDs off (0% duty cycle)
     TIMER_A0->CCTL[4] = 0b11100000;     //0xE0  reset/set mode
     TIMER_A0->CTL = 0b1000010100;       //no clock divider
@@ -877,10 +877,13 @@ void debounce2(uint8_t pin, uint32_t len) {
  */
 void init_LCD(void)
 {
-    P2->SEL0 &= ~BIT5;          //using P2.5 to power LCD backlight until ADC-to-PWM is utilized
+    P2->SEL0 |= BIT5;          //using P2.5 to power LCD backlight until ADC-to-PWM is utilized
     P2->SEL1 &= ~BIT5;
     P2->DIR |= BIT5;
     P2->OUT |= BIT5;
+
+    TIMER_A0->CCR[2] = 1000-1;          //initialize LCD backlight to 100% duty cycle
+    TIMER_A0->CCTL[2] = 0b11100000;     //0xE0  reset/set mode
 
     //RS on P6.4, Enable on P6.5
     P6->SEL0 &= ~(BIT4|BIT5);               //set P6.4 and P6.5 for GPIO
