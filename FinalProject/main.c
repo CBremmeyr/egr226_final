@@ -393,7 +393,12 @@ void set_lcd_brightness(void) {
     // Set new duty cycle for LCD LED PWM
 //    TIMER_A0->CCR[3] = (dc * 10) - 1;
 
+    if(lcd_raw == 0) {
+        TIMER_A0->CCR[3] = 0;
+    }
+    else {
     TIMER_A0->CCR[3] = (0.061038 * (float)lcd_raw) - 1;
+    }
 }
 
 void init_SysTick(void)             //reset and enable SysTick timer, no interrupt
@@ -922,10 +927,10 @@ void debounce2(uint8_t pin, uint32_t len) {
  */
 void init_LCD(void)
 {
-    P2->SEL0 |= BIT5;          //using P2.5 to power LCD backlight until ADC-to-PWM is utilized
-    P2->SEL1 &= ~BIT5;
-    P2->DIR |= BIT5;
-    P2->OUT |= BIT5;
+    P2->SEL0 |= BIT6;          //using P2.5 to power LCD backlight until ADC-to-PWM is utilized
+    P2->SEL1 &= ~BIT6;
+    P2->DIR |= BIT6;
+    P2->OUT |= BIT6;
 
     TIMER_A0->CCR[3] = 1000-1;          //initialize LCD backlight to 100% duty cycle
     TIMER_A0->CCTL[3] = 0b11100000;     //0xE0  reset/set mode
