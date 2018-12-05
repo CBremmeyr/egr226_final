@@ -451,8 +451,8 @@ void init_adc(void) {
     ADC14->CTL0 = 0;
     ADC14->CTL0 = 0b10000100001000100000001100010000;   // 0b 1000 0100 0010 0000 0000 0011 0001 0000 from lab 8
     ADC14->CTL1 = 0b110000;         // 0b 11 0000
-    ADC14->MCTL[0] = 0;
-    ADC14->MCTL[1] = 0 | BIT7;         //BIT7 signifies end of sequence (so ADC will not run conversions for channels 2 thru 31)
+    ADC14->MCTL[0] = 0x0;
+    ADC14->MCTL[1] = 0x1 | BIT7;         //BIT7 signifies end of sequence (so ADC will not run conversions for channels 2 thru 31)
     ADC14->IER0 |= BIT0;
 
     // Enable ADC
@@ -1064,9 +1064,9 @@ void init_Timer32(void)
     TIMER32_1->CONTROL = 0b01100010;    // set up but leave off - toggle BIT7 to turn on/off
     TIMER32_1->LOAD = 9000000 - 1;      //interrupt every 3 seconds for increasing wake up lights
 
-    // Timer32_0 for button debounce
-    TIMER32_0->CONTROL = 0b01100010;
-    TIMER32_0->LOAD = DEBOUNCE - 1;
+//    // Timer32_0 for button debounce
+//    TIMER32_0->CONTROL = 0b01100010;
+//    TIMER32_0->LOAD = DEBOUNCE - 1;
 
     NVIC_EnableIRQ(T32_INT1_IRQn);      //enable Timer32 interrupts
 }
