@@ -311,7 +311,7 @@ void update_temperature(void) {
     char temp_str[] = "00.0";
 
     // Convert raw value to *F
-    temp = 0.019958 * temperature_raw;
+    temp = ((0.019958 * temperature_raw * 9) / 5) + 32;
 
     // Display temperature on LCD
     sprintf(temp_str, "%.1f", temp);
