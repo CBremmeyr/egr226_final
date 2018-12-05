@@ -317,8 +317,46 @@ void update_temperature(void) {
  * Update Alarm time on LCD
  */
 void update_alarm_lcd(void) {
+//update global alarm time variables
+    alarm_hr = (RTC_C->AMINHR & 0xFF00) >> 8;
+    alarm_min = (RTC_C->AMINHR & 0x00FF);
 
-    // Write alarm time strings to LCD locations
+    if(((RTC_C->AMINHR & 0xFF00)>>8) == 0)            //if hours equal zero time is 12am ((RTC_C->AMINHR & 0xFF00)>>8)
+    {
+        alarm_hr = 12;
+
+    }
+    if(alarm_hr > 12)                                 //if hours are greater than 12 convert to 12hr format
+    {
+        alarm_hr = alarm_hr - 12;
+    }
+
+//update global alarm time display strings
+    if(((RTC_C->AMINHR & 0xFF00)>>8) > 11)            //if hours are greater than 11 time is pm
+    {
+        strcpy(alarm_xm, " PM");
+    }
+    else
+    {
+        strcpy(alarm_xm, " AM");
+    }
+    if(alarm_hr < 10)                           //if current alarm hour count is only one character
+    {
+        sprintf(alarm_hours," %d",alarm_hr);    //put the integer alarm hour count into the alarm hours string with a leading space
+    }
+    else
+    {
+        sprintf(alarm_hours,"%d",alarm_hr);     //put the integer alarm hour count into the alarm hours string
+    }
+    if(alarm_min < 10)                          //if current alarm minute count is only one character
+    {
+        sprintf(alarm_minutes,"0%d",alarm_min); //put the integer alarm minutes count into the alarm minutes string with a leading zero
+    }
+    else
+    {
+        sprintf(alarm_minutes,"%d",alarm_min);  //put the integer alarm minutes count into the alarm minutes string
+    }
+// Write alarm time strings to LCD locations
     commandWrite(ALARM_HR_LOC);
     write_String(alarm_hours);
     commandWrite(ALARM_MIN_LOC);
