@@ -96,6 +96,10 @@ void init_Timer32(void);
 void set_lcd_brightness(void);
 void update_alarm_lcd(void);
 void update_temperature(void);
+void writeOutput(char *string); // write output charactrs to the serial port
+void readInput(char* string); // read input characters from INPUT_BUFFER that are valid
+void setupSerial(); // Sets up serial for use and enables interrupts
+void serial_monitor(void);
 
 enum states{
     Idle,
@@ -137,15 +141,25 @@ char alarm_xm[4] = " AM";
 int btnup_flag = 0;
 int btndown_flag = 0;
 int btn_fastspeed = 0;
+int serial_flag = 0;
+// Making a buffer of 100 characters for serial to store to incoming serial data
+#define BUFFER_SIZE 100
+char INPUT_BUFFER[BUFFER_SIZE];
+// initializing the starting position of used buffer and read buffer
+uint8_t storage_location = 0; // used in the interrupt to store new data
+uint8_t read_location = 0; // used in the main application to read valid data that hasn't been read yet
+
 
 int set_time_flag = 0;      //flag for moving thru set time
 int set_alarm_flag = 0;     //flag for moving thru set alarm
 int alarm_enable = 0;
 char alarm[10] = "ALARM OFF";
+int sound_alarm = 0;
 
 void main(void)
 {
     WDT_A->CTL = WDT_A_CTL_PW | WDT_A_CTL_HOLD;     // stop watchdog timer
+    INPUT_BUFFER[0]= '\0';  // Sets the global buffer to initial condition of empty
 
     // Setup system
     __disable_interrupt();
@@ -158,6 +172,7 @@ void main(void)
     init_RTC();
     init_adc();
     init_Timer32();
+    setupSerial();
 
     __enable_interrupt();
 
@@ -166,6 +181,12 @@ void main(void)
     while(1)
     {
         update_time();          //update current time displayed each time through the loop
+        update_alarm_lcd();
+        if(serial_flag)
+        {
+            serial_monitor();
+            serial_flag = 0;
+        }
         update_temperature();
         set_lcd_brightness();
         switch(state)
@@ -198,9 +219,22 @@ void main(void)
                 }
                 if(alarm_enable)
                 {
-                    if(((((RTC_C->TIM1 & 0x00FF)<<8) | ((RTC_C->TIM0 & 0xFF00)>>8)) + 5) >= (RTC_C->AMINHR & ~(BIT(15)|BIT(7))))    //if 5 min before alarm time
+//                    if((RTC_C->AMINHR & 0x00FF & ~BIT7) < 5) //if alarm minutes are less than 5
+//                    {
+//                        if(((RTC_C->TIM1 & 0x00FF) + 1) == ((RTC_C->AMINHR & 0xFF00 & ~BIT(15))>>8))
+//                        {
+//                            if(((RTC_C->TIM0 & 0xFF00)>>8) > (60 - (5 - (RTC_C->AMINHR & 0x00FF & BIT7))))
+//                            {
+//                                state = Wake_Up;
+//                            }
+//                        }
+//                    }
+                    if((((RTC_C->TIM1 & 0x00FF)<<8) | ((RTC_C->TIM0 & 0xFF00)>>8)) < (RTC_C->AMINHR & ~(BIT(15)|BIT(7))))
                     {
-                            state = Wake_Up;
+                        if(((((RTC_C->TIM1 & 0x00FF)<<8) | ((RTC_C->TIM0 & 0xFF00)>>8)) + 5) >= (RTC_C->AMINHR & ~(BIT(15)|BIT(7))))    //if 5 min before alarm time
+                        {
+                                state = Wake_Up;
+                        }
                     }
                 }
                 break;
@@ -230,13 +264,21 @@ void main(void)
                     state = Idle;
                     btnup_flag = 0;
                 }
-                if(alarm_enable)
+                if(sound_alarm)
                 {
-                    if((((RTC_C->TIM1 & 0x00FF)<<8) | ((RTC_C->TIM0 & 0xFF00)>>8)) >= (RTC_C->AMINHR & ~(BIT(15)|BIT(7))))    //if alarm time
-                    {
-                            state = Alarm;
-                    }
+                    state = Alarm;
+                    sound_alarm = 0;
                 }
+//                if(alarm_enable)
+//                {
+//                    if((((RTC_C->TIM1 & 0x00FF)<<8) | ((RTC_C->TIM0 & 0xFF00)>>8)) < (RTC_C->AMINHR))
+//                    {
+//                        if((((RTC_C->TIM1 & 0x00FF)<<8) | ((RTC_C->TIM0 & 0xFF00)>>8)) >= (RTC_C->AMINHR))    //if alarm time
+//                        {
+//                                state = Alarm;
+//                        }
+//                    }
+//                }
 
                 break;
 
@@ -272,9 +314,10 @@ void main(void)
                 break;
 
             case Snooze:
-
                 if((((RTC_C->TIM1 & 0x00FF)<<8) | ((RTC_C->TIM0 & 0xFF00)>>8)) >= (RTC_C->AMINHR & ~(BIT(15)|BIT(7))))    //if new alarm time
                 {
+                    // LCD to Full brightness
+                    TIMER_A0->CCR[3] = 1000 - 1;
                     TIMER_A2->CCR[4] ^= (BIT5|BIT4|BIT1);  //toggle 50% duty cycle for alarm speaker
                     delay_ms(1000);
                 }
@@ -436,7 +479,7 @@ void init_RTC(void)
     RTC_C->AMINHR = 0;              //load 12am into alarm (12:00 AM)
 
     RTC_C->PS1CTL = 0b11010;        //1 second interrupt
-    RTC_C->CTL0 = (0xA500) | BIT5;  //turn on interrupt
+    //RTC_C->CTL0 = (0xA500) | BIT5;  //turn on interrupt
 
     RTC_C->CTL13 = 0;               //????? what does this register do
     NVIC_EnableIRQ(RTC_C_IRQn);     //enable RTC interrupt handler
@@ -491,20 +534,31 @@ void ADC14_IRQHandler(void) {
  */
 void RTC_C_IRQHandler()
 {
-
     if(RTC_C->PS1CTL & BIT0)                //if RTC interrupt
     {
-        RTC_C->PS1CTL &= ~BIT0;             //reset interrupt flag
         if(btn_fastspeed)
         {
             RTC_C->TIM0 += (1<<8);
+            if(((RTC_C->TIM0 & 0xFF00)>>8) == 60)
+            {
+                RTC_C->TIM1++;
+                RTC_C->TIM0 = (RTC_C->TIM0 & 0x00FF);
+            }
         }
         hr = RTC_C->TIM1 & 0x00FF;          //record hours (from bottom 8 bits of TIM1)
         min = (RTC_C->TIM0 & 0xFF00) >> 8;  //record minutes (from top 8 bits of TIM0)
         sec = RTC_C->TIM0 & 0x00FF;         //record seconds (from bottom 8 bits of TIM0)
-
-
+        RTC_C->PS1CTL &= ~BIT0;             //reset interrupt flag
     }
+    if(RTC_C->CTL0 & BIT1)
+    {
+        RTC_C->CTL0 = (0xA500) & ~BIT1;
+        RTC_C->AMINHR &= ~(BIT(15)|BIT7);
+        sound_alarm = 1;
+    }
+
+   //     RTC_C->PS1CTL &= ~BIT0;             //reset interrupt flag
+
     ADC14->CTL0 |= 0b1;                                 //start ADC Conversion
 }
 
@@ -1087,5 +1141,275 @@ void T32_INT1_IRQHandler(void)
     else
     {
         TIMER_A0->CCR[4] += 10;         //add 1% to LED duty cycle
+    }
+}
+
+void setupSerial()
+{
+    P1->SEL0 |=  (BIT2 | BIT3); // P1.2 and P1.3 are EUSCI_A0 RX
+    P1->SEL1 &= ~(BIT2 | BIT3); // and TX respectively.
+
+    EUSCI_A0->CTLW0  = BIT0; // Disables EUSCI. Default configuration is 8N1
+    EUSCI_A0->CTLW0 |= BIT7; // Connects to SMCLK BIT[7:6] = 10
+    EUSCI_A0->CTLW0 |= (BIT(15)|BIT(14)|BIT(11));  //BIT15 = Parity, BIT14 = Even, BIT11 = Two Stop Bits
+    // Baud Rate Configuration
+    // 3000000/(16*115200) = 1.628  (3 MHz at 115200 bps is fast enough to turn on over sampling (UCOS = /16))
+    // UCOS16 = 1 (0ver sampling, /16 turned on)
+    // UCBR  = 1 (Whole portion of the divide)
+    // UCBRF = .628 * 16 = 10 (0x0A) (Remainder of the divide)
+    // UCBRS = 3000000/115200 remainder=0.04 -> 0x01 (look up table 22-4)
+    EUSCI_A0->BRW = 1;  // UCBR Value from above
+    EUSCI_A0->MCTLW = 0x01A1; //UCBRS (Bits 15-8) & UCBRF (Bits 7-4) & UCOS16 (Bit 0)
+
+    EUSCI_A0->CTLW0 &= ~BIT0;  // Enable EUSCI
+    EUSCI_A0->IFG &= ~BIT0;    // Clear interrupt
+    EUSCI_A0->IE |= BIT0;      // Enable interrupt
+    NVIC_EnableIRQ(EUSCIA0_IRQn);
+}
+
+/*----------------------------------------------------------------
+ * void EUSCIA0_IRQHandler(void)
+ *
+ * Description: Interrupt handler for serial communication on EUSCIA0.
+ * Stores the data in the RXBUF into the INPUT_BUFFER global character
+ * array for reading in the main application
+ * Inputs: None (Interrupt)
+ * Outputs: Data stored in the global INPUT_BUFFER. storage_location
+ * in the INPUT_BUFFER updated.
+----------------------------------------------------------------*/
+void EUSCIA0_IRQHandler(void)
+{
+    if (EUSCI_A0->IFG & BIT0)  // Interrupt on the receive line
+    {
+        serial_flag = 1;
+        INPUT_BUFFER[storage_location] = EUSCI_A0->RXBUF; // store the new piece of data at the present location in the buffer
+        EUSCI_A0->IFG &= ~BIT0; // Clear the interrupt flag right away in case new data is ready
+        storage_location++; // update to the next position in the buffer
+        if(storage_location == BUFFER_SIZE) // if the end of the buffer was reached, loop back to the start
+            storage_location = 0;
+    }
+}
+/*----------------------------------------------------------------
+ * void readInput(char *string)
+ *
+ * Description:  This is a function similar to most serial port
+ * functions like ReadLine.  Written as a demonstration and not
+ * production worthy due to limitations.
+ * One of the limitations is that it is BLOCKING which means
+ * it will wait in this function until there is a \n on the
+ * serial input.
+ * Another limitation is poor memory management.
+ * Inputs: Pointer to a string that will have information stored
+ * in it.
+ * Outputs: Places the serial data in the string that was passed
+ * to it.  Updates the global variables of locations in the
+ * INPUT_BUFFER that have been already read.
+----------------------------------------------------------------*/
+void readInput(char *string)
+{
+    int i = 0;  // Location in the char array "string" that is being written to
+
+    // One of the few do/while loops I've written, but need to read a character before checking to see if a \n has been read
+    do
+    {
+        // If a new line hasn't been found yet, but we are caught up to what has been received, wait here for new data
+        while(read_location == storage_location && INPUT_BUFFER[read_location] != 13);
+        string[i] = INPUT_BUFFER[read_location];  // Manual copy of valid character into "string"
+        INPUT_BUFFER[read_location] = '\0';
+        i++; // Increment the location in "string" for next piece of data
+        read_location++; // Increment location in INPUT_BUFFER that has been read
+        if(read_location == BUFFER_SIZE)  // If the end of INPUT_BUFFER has been reached, loop back to 0
+            read_location = 0;
+    }
+    while(string[i-1] != 13); // If a \n was just read, break out of the while loop
+
+    string[i-1] = '\0'; // Replace the \n with a \0 to end the string when returning this function
+}
+/*----------------------------------------------------------------
+ * void writeOutput(char *string)
+ *
+ * Description:  This is a function similar to most serial port
+ * functions like printf.  Written as a demonstration and not
+ * production worthy due to limitations.
+ * One limitation is poor memory management.
+ * Inputs: Pointer to a string that has a string to send to the serial.
+ * Outputs: Places the data on the serial output.
+----------------------------------------------------------------*/
+void writeOutput(char *string)
+{
+    int i = 0;  // Location in the char array "string" that is being written to
+
+    while(string[i] != '\0') {
+        EUSCI_A0->TXBUF = string[i];
+        i++;
+        while(!(EUSCI_A0->IFG & BIT1));
+    }
+}
+
+void serial_monitor(void)
+{
+    char string[BUFFER_SIZE]; // Creates local char array to store incoming serial commands
+    char output[BUFFER_SIZE];
+    char letter;
+    char check_letter;
+    char invalid[] = "INVALID COMMAND\n";
+    char temp_hours[3],temp_minutes[3],temp_seconds[3];
+    int input_hours, input_minutes, input_seconds;
+    int output_hours, output_minutes, output_seconds;
+
+    readInput(string); // Read the input up to \n, store in string.  This function doesn't return until \n is received
+
+    if(string[0] != '\0') // if string is not empty, check the inputted data.
+    {
+        letter = string[0];
+        if(letter == 'S')
+        {
+            check_letter = string[3];
+            if(check_letter == 'T')
+            {
+                strncpy(temp_hours,&string[8],2);
+                strcat(temp_hours,"\0");
+
+                strncpy(temp_minutes,&string[11],2);
+                strcat(temp_minutes,"\0");
+
+                strncpy(temp_seconds,&string[14],2);
+                strcat(temp_seconds,"\0");
+
+                input_hours = atoi(&temp_hours[0]);
+                input_minutes = atoi(&temp_minutes[0]);
+                input_seconds = atoi(&temp_seconds[0]);
+
+                if(input_hours < 0 || input_hours > 23 || input_minutes < 0 || input_minutes > 59 || input_seconds < 0 || input_seconds > 59)
+                {
+                    writeOutput(invalid);
+                }
+                else
+                {
+                    RTC_C->TIM1 = input_hours;
+                    RTC_C->TIM0 = ((input_minutes<<8) | input_seconds);
+                }
+
+            }
+
+            else if(check_letter == 'A')
+            {
+                strncpy(temp_hours,&string[9],2);
+                strcat(temp_hours,"\0");
+
+                strncpy(temp_minutes,&string[12],2);
+                strcat(temp_minutes,"\0");
+
+                input_hours = atoi(&temp_hours[0]);
+                input_minutes = atoi(&temp_minutes[0]);
+
+                if(input_hours < 0 || input_hours > 23 || input_minutes < 0 || input_minutes > 59)
+                {
+                    writeOutput(invalid);
+                }
+                else
+                {
+                    if(alarm_enable)
+                    {
+                        RTC_C->AMINHR = ((input_hours<<8) | input_minutes | BIT(15) | BIT7);
+                    }
+                    else
+                    {
+                        RTC_C->AMINHR = ((input_hours<<8) | input_minutes);
+                    }
+
+                }
+            }
+            else
+            {
+                writeOutput(invalid);
+            }
+        }
+        else if(letter == 'R')
+        {
+            check_letter = string[4];
+            if(check_letter == 'T')
+            {
+                output_hours = RTC_C->TIM1 & 0x00FF;          //record hours (from bottom 8 bits of TIM1)
+                output_minutes = (RTC_C->TIM0 & 0xFF00) >> 8;  //record minutes (from top 8 bits of TIM0)
+                output_seconds = RTC_C->TIM0 & 0x00FF;         //record seconds (from bottom 8 bits of TIM0)
+
+                sprintf(temp_hours,"%d",output_hours);
+                sprintf(temp_minutes,"%d",output_minutes);
+                sprintf(temp_seconds,"%d",output_seconds);
+                if(output_hours < 10)
+                {
+                    strcpy(output,"0");
+                    strcat(output,temp_hours);
+                    strcat(output,":");
+                }
+                else
+                {
+                    strcpy(output,temp_hours);
+                    strcat(output,":");
+                }
+                if(output_minutes < 10)
+                {
+                    strcat(output,"0");
+                    strcat(output,temp_minutes);
+                    strcat(output,":");
+                }
+                else
+                {
+                    strcat(output,temp_minutes);
+                    strcat(output,":");
+                }
+                if(output_seconds < 10)
+                {
+                    strcat(output,"0");
+                    strcat(output,temp_seconds);
+                    strcat(output,"\n");
+                }
+                else
+                {
+                    strcat(output,temp_seconds);
+                    strcat(output,"\n");
+                }
+
+            }
+            else if(check_letter == 'A')
+            {
+                if(alarm_enable)
+                {
+                    output_hours = ((RTC_C->AMINHR & 0xFF00 & ~BIT(15))>>8);
+                    output_minutes = (RTC_C->AMINHR & 0x00FF & ~BIT7);
+                }
+                else
+                {
+                    output_hours = ((RTC_C->AMINHR & 0xFF00)>>8);
+                    output_minutes = (RTC_C->AMINHR & 0x00FF);
+                }
+                sprintf(temp_hours,"%d",output_hours);
+                sprintf(temp_minutes,"%d",output_minutes);
+                if(output_hours < 10)
+                {
+                    strcpy(output,"0");
+                    strcat(output,temp_hours);
+                    strcat(output,":");
+                }
+                else
+                {
+                    strcpy(output,temp_hours);
+                    strcat(output,":");
+                }
+                if(output_minutes < 10)
+                {
+                    strcat(output,"0");
+                    strcat(output,temp_minutes);
+                    strcat(output,"\n");
+                }
+                else
+                {
+                    strcat(output,temp_minutes);
+                    strcat(output,"\n");
+                }
+            }
+            writeOutput(output);
+        }
     }
 }
