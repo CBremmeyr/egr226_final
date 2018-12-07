@@ -3,7 +3,15 @@
 *   Date:           November 18, 2018
 *   Class:          EGR226-908
 *   Assignment:     Final Project
-*   Description:
+*   Description:    Implements an alarm clock using the MSP432 microprocessor as the embedded controller.
+*                   Typical alarm clock functionality, plus room temperature display, gradually increasing wake-up
+*                   lights, and serial monitor access via USB connection to set time, read time, set alarm time, and
+*                   read alarm time.
+*                       Serial Configuration: 8E2 @ 115200 Baud Rate
+*                       Serial Commands:    "SETTIME XX:XX:XX"  (24 HOUR Format)
+*                                           "SETALARM XX:XX"    (24 HOUR Format)
+*                                           "READTIME"
+*                                           "READALARM"
 *   -------------------------------------------------------------------------------------------------------------------------
 *   P5.5 (A0) Analog input for screen brightness
 *   P5.4 (A1) Analog input for temp
@@ -11,8 +19,8 @@
 *   P2.7 (TA0.4) LED PWM
 *
 *   P2.6 LCD back light (TA0.3)
-*   P6.4 LCD rs
-*   P6.5 LCD en
+*   P6.4 LCD RS
+*   P6.5 LCD EN
 *   P2.0 - P2.3 LCD data
 *
 *   P3.5 Button down (top - far right)
@@ -21,17 +29,7 @@
 *   P4.1 Button set alarm (top - center left)
 *   P4.2 Button (back - top)
 *   P4.3 Button (back - bottom)
-*
-*   TODO:   - (DONE)PWM led's with wake-up functionality
-*           - Analog input  --  issue: reading from 2 analog inputs
-*               - temperature
-*               - LCD display
-*           - Serial communication
-*           - Time speed buttons
-*           - remove debounce from interrupts
-*               - Use timer32_0 to turn off button interrupt for 'DEBOUNCE' ms
 */
-
 #include "msp.h"
 #include <stdio.h>
 #include <stdlib.h>
@@ -52,7 +50,6 @@
 #define TOP_RC_BTN 6
 
 // LCD string locations
-
 // Current time
 #define TIME_HR_LOC  0x82
 #define TIME_MIN_LOC 0x85
@@ -67,9 +64,10 @@
 // Temperature
 #define TEMP_LOC 0xD7
 
-#define BOUNCE 200          // debounce button press for 10ms
-#define MS 3000             // 3000 clock cycles = 1ms
-#define US 3                // 3 clock cycles = 1us
+#define BOUNCE 200          //debounce time in ms for button press
+#define MS 3000             //3000 clock cycles = 1ms
+#define US 3                //3 clock cycles = 1us
+#define BUFFER_SIZE 100     //string array size
 
 void init_SysTick(void);
 void init_RTC(void);
@@ -89,16 +87,14 @@ void set_time(void);
 void set_alarm(void);
 void update_time(void);
 void write_String(char temp[]);
-void debounce1(uint8_t pin, uint32_t len);
-void debounce2(uint8_t pin, uint32_t len);
 void init_Speaker(void);
 void init_Timer32(void);
 void set_lcd_brightness(void);
 void update_alarm_lcd(void);
 void update_temperature(void);
-void writeOutput(char *string); // write output charactrs to the serial port
-void readInput(char* string); // read input characters from INPUT_BUFFER that are valid
-void setupSerial(); // Sets up serial for use and enables interrupts
+void writeOutput(char *string);
+void readInput(char* string);
+void setupSerial();
 void serial_monitor(void);
 
 enum states{
@@ -142,28 +138,25 @@ int btnup_flag = 0;
 int btndown_flag = 0;
 int btn_fastspeed = 0;
 int serial_flag = 0;
-// Making a buffer of 100 characters for serial to store to incoming serial data
-#define BUFFER_SIZE 100
-char INPUT_BUFFER[BUFFER_SIZE];
-// initializing the starting position of used buffer and read buffer
-uint8_t storage_location = 0; // used in the interrupt to store new data
-uint8_t read_location = 0; // used in the main application to read valid data that hasn't been read yet
+
+char INPUT_BUFFER[BUFFER_SIZE];     //input string for UART serial com
+uint8_t storage_location = 0;
+uint8_t read_location = 0;
 
 
-int set_time_flag = 0;      //flag for moving thru set time
-int set_alarm_flag = 0;     //flag for moving thru set alarm
-int alarm_enable = 0;
-char alarm[10] = "ALARM OFF";
-int sound_alarm = 0;
+int set_time_flag = 0;          //flag for moving thru set time
+int set_alarm_flag = 0;         //flag for moving thru set alarm
+int alarm_enable = 0;           //flag for enabling/disabling the alarm
+char alarm[10] = "ALARM OFF";   //string for displaying the alarm status
+int sound_alarm = 0;            //flag for changing to the alarm state
 
 void main(void)
 {
-    WDT_A->CTL = WDT_A_CTL_PW | WDT_A_CTL_HOLD;     // stop watchdog timer
-    INPUT_BUFFER[0]= '\0';  // Sets the global buffer to initial condition of empty
+    WDT_A->CTL = WDT_A_CTL_PW | WDT_A_CTL_HOLD;         //stop watchdog timer
+    INPUT_BUFFER[0]= '\0';                              //set input string to empty
 
     // Setup system
     __disable_interrupt();
-
     init_SysTick();
     init_Switches();
     init_Speaker();
@@ -173,67 +166,58 @@ void main(void)
     init_adc();
     init_Timer32();
     setupSerial();
-
     __enable_interrupt();
 
-    start_Menu();                   //sends starting layout to the LCD (******this function could potentially be combined with init_LCD()*******)
-    enum states state = Idle;
+    start_Menu();                       //sends starting layout to the LCD
+    enum states state = Idle;           //set starting state to Idle
     while(1)
     {
-        update_time();          //update current time displayed each time through the loop
-        update_alarm_lcd();
-        if(serial_flag)
+        update_time();                  //update current time displayed each time through the loop
+        update_alarm_lcd();             //update displayed alarm time each time through the loop
+        if(serial_flag)                 //if new data on the serial input buffer
         {
-            serial_monitor();
-            serial_flag = 0;
+            serial_monitor();           //get the serial command
+            serial_flag = 0;            //clear serial flag
         }
-        update_temperature();
-        set_lcd_brightness();
+        update_temperature();           //update displayed temperature
+        set_lcd_brightness();           //update LCD brightness according analog input from trimpot
         switch(state)
             {
-            case Idle:
+            case Idle:                  //finite state
 
-                if(btnup_flag)
+                if(btnup_flag)                                  //if button up/on/off
                 {
-                    alarm_enable ^= BIT0;
-                    btnup_flag = 0;
-                    if(alarm_enable)
+                    alarm_enable ^= BIT0;                       //toggle alarm enable flag
+                    btnup_flag = 0;                             //clear button flag
+                    if(alarm_enable)                            //if alarm is enabled
                     {
-                        strcpy(alarm," ALARM ON");
+                        strcpy(alarm," ALARM ON");              //update alarm status display string
                         RTC_C->AMINHR |= BIT(15) | BIT(7);      //Enable Alarm: bit15 = enable hr alarm, bit7 = enable min alarm
                     }
-                    else
+                    else                                        //if alarm is disabled
                     {
-                        strcpy(alarm,"ALARM OFF");
+                        strcpy(alarm,"ALARM OFF");              //update alarm status display string
                         RTC_C->AMINHR &= ~(BIT(15) | BIT(7));   //Disable Alarm
                     }
                 }
 
-                if(set_time_flag)        //if btn_setTime
+                if(set_time_flag)       //if btn_setTime
                 {
-                    state = Set_Time;
+                    state = Set_Time;   //change finite state set time
                 }
-                if(set_alarm_flag)       //if btn_setAlarm
+                if(set_alarm_flag)      //if btn_setAlarm
                 {
-                    state = Set_Alarm;
+                    state = Set_Alarm;  //change finite state set alarm
                 }
-                if(alarm_enable)
+                if(alarm_enable)        //if alarm is enabled
                 {
-//                    if((RTC_C->AMINHR & 0x00FF & ~BIT7) < 5) //if alarm minutes are less than 5
-//                    {
-//                        if(((RTC_C->TIM1 & 0x00FF) + 1) == ((RTC_C->AMINHR & 0xFF00 & ~BIT(15))>>8))
-//                        {
-//                            if(((RTC_C->TIM0 & 0xFF00)>>8) > (60 - (5 - (RTC_C->AMINHR & 0x00FF & BIT7))))
-//                            {
-//                                state = Wake_Up;
-//                            }
-//                        }
-//                    }
+                    //if real time is less than alarm time
                     if((((RTC_C->TIM1 & 0x00FF)<<8) | ((RTC_C->TIM0 & 0xFF00)>>8)) < (RTC_C->AMINHR & ~(BIT(15)|BIT(7))))
                     {
-                        if(((((RTC_C->TIM1 & 0x00FF)<<8) | ((RTC_C->TIM0 & 0xFF00)>>8)) + 5) >= (RTC_C->AMINHR & ~(BIT(15)|BIT(7))))    //if 5 min before alarm time
+                        //if 5 minutes before alarm time
+                        if(((((RTC_C->TIM1 & 0x00FF)<<8) | ((RTC_C->TIM0 & 0xFF00)>>8)) + 5) >= (RTC_C->AMINHR & ~(BIT(15)|BIT(7))))
                         {
-                                state = Wake_Up;
+                                state = Wake_Up;    //change finite state to wake up
                         }
                     }
                 }
@@ -241,117 +225,105 @@ void main(void)
 
             case Set_Time:
                 set_time();                 //stays in function set_time until current time configuration is complete
-                state = Idle;
+                state = Idle;               //return to idle state after setting time
                 set_time_flag = 0;          //reset flag after time configuration is complete
                 break;
 
             case Set_Alarm:
                 set_alarm();                //stays in function set_alarm until alarm time configuration is complete
-                state = Idle;
+                state = Idle;               //return to idle state after setting alarm
                 set_alarm_flag = 0;         //reset flag after alarm time configuration is complete
                 break;
 
             case Wake_Up:
-                TIMER32_1->CONTROL |= BIT7;     //enable Timer32
+                TIMER32_1->CONTROL |= BIT7;     //enable Timer32 to interrupt and increase LED duty cycle ever 3 seconds
 
-                if(btnup_flag)
+                if(btnup_flag)                              //if button up/on/off
                 {
-                    alarm_enable = 0;
-                    strcpy(alarm,"ALARM OFF");
-                    RTC_C->AMINHR &= ~(BIT(15) | BIT(7));   //disable alarm
+                    alarm_enable = 0;                       //clear alarm enable flag
+                    strcpy(alarm,"ALARM OFF");              //update alarm status display string
+                    RTC_C->AMINHR &= ~(BIT(15) | BIT(7));   //disable alarm interrupt
                     TIMER32_1->CONTROL &= ~BIT7;            //disable Timer32
                     TIMER_A0->CCR[4] = 0;                   //set LED duty cycle to 0%
-                    state = Idle;
-                    btnup_flag = 0;
+                    state = Idle;                           //return to idle state
+                    btnup_flag = 0;                         //clear button flag
                 }
-                if(sound_alarm)
+                //if real time is greater than or equal to alarm time
+                if((((RTC_C->TIM1 & 0x00FF)<<8) | ((RTC_C->TIM0 & 0xFF00)>>8)) >= (RTC_C->AMINHR & ~(BIT(15)|BIT(7))))
                 {
-                    state = Alarm;
-                    sound_alarm = 0;
+                    state = Alarm;                          //change state to alarm
                 }
-//                if(alarm_enable)
-//                {
-//                    if((((RTC_C->TIM1 & 0x00FF)<<8) | ((RTC_C->TIM0 & 0xFF00)>>8)) < (RTC_C->AMINHR))
-//                    {
-//                        if((((RTC_C->TIM1 & 0x00FF)<<8) | ((RTC_C->TIM0 & 0xFF00)>>8)) >= (RTC_C->AMINHR))    //if alarm time
-//                        {
-//                                state = Alarm;
-//                        }
-//                    }
-//                }
-
+                //redundant state transition to alarm state ( issues with alarm interrupt flag)
+                if(sound_alarm)                             //if alarm interrupt happened
+                {
+                    state = Alarm;                          //change state to alarm
+                    sound_alarm = 0;                        //clear alarm flag
+                }
                 break;
 
             case Alarm:
+                TIMER_A0->CCR[3] = 1000 - 1;                //LCD to Full brightness
+                TIMER_A2->CCR[4] ^= (BIT5|BIT4|BIT1);       //toggle 50% duty cycle for alarm speaker
+                delay_ms(1000);                             //delay for speaker on/off time
 
-                // LCD to Full brightness
-                TIMER_A0->CCR[3] = 1000 - 1;
-
-                TIMER_A2->CCR[4] ^= (BIT5|BIT4|BIT1);  //toggle 50% duty cycle for alarm speaker
-                delay_ms(1000);
-
-                if(btnup_flag)
+                if(btnup_flag)                              //if button up/on/off (turn off alarm)
                 {
-                    TIMER_A2->CCR[4] = 0;
-                    alarm_enable = 0;
-                    strcpy(alarm,"ALARM OFF");
+                    TIMER_A2->CCR[4] = 0;                   //disable alarm speaker
+                    alarm_enable = 0;                       //clear alarm flag
+                    strcpy(alarm,"ALARM OFF");              //update alarm status display string
                     RTC_C->AMINHR &= ~(BIT(15) | BIT(7));   // Disable Alarm
                     TIMER32_1->CONTROL &= ~BIT7;            // Disable Timer32
                     TIMER_A0->CCR[4] = 0;                   // Set LED duty cycle to 0%
                     set_lcd_brightness();                   // Set LCD brightness to pot value
-                    btnup_flag = 0;
-                    state = Idle;
+                    btnup_flag = 0;                         //clear button flag
+                    state = Idle;                           //return to idle state
                 }
-                if(btndown_flag)
+                if(btndown_flag)                            //if button down/snooze (snooze)
                 {
-                    TIMER_A2->CCR[4] = 0;
-                    strcpy(alarm,"   SNOOZE");
-                    RTC_C->AMINHR += 10;                //add 10 minutes to alarm time for snooze
-                    update_alarm_lcd();
-                    btndown_flag = 0;
-                    state = Snooze;
+                    TIMER_A2->CCR[4] = 0;                   //disable alarm speaker
+                    strcpy(alarm,"   SNOOZE");              //update alarm status display string
+                    RTC_C->AMINHR += 10;                    //add 10 minutes to alarm time for snooze
+                    update_alarm_lcd();                     //update displayed alarm time
+                    btndown_flag = 0;                       //clear button flag
+                    state = Snooze;                         //change state to snooze
                 }
                 break;
 
             case Snooze:
-                if((((RTC_C->TIM1 & 0x00FF)<<8) | ((RTC_C->TIM0 & 0xFF00)>>8)) >= (RTC_C->AMINHR & ~(BIT(15)|BIT(7))))    //if new alarm time
+                //if real time is greater than or equal to the snooze alarm time
+                if((((RTC_C->TIM1 & 0x00FF)<<8) | ((RTC_C->TIM0 & 0xFF00)>>8)) >= (RTC_C->AMINHR & ~(BIT(15)|BIT(7))))
                 {
-                    // LCD to Full brightness
-                    TIMER_A0->CCR[3] = 1000 - 1;
-                    TIMER_A2->CCR[4] ^= (BIT5|BIT4|BIT1);  //toggle 50% duty cycle for alarm speaker
-                    delay_ms(1000);
+                    TIMER_A0->CCR[3] = 1000 - 1;            //LCD to Full brightness
+                    TIMER_A2->CCR[4] ^= (BIT5|BIT4|BIT1);   //toggle 50% duty cycle for alarm speaker
+                    delay_ms(1000);                         //delay for speaker on/off time
                 }
 
                 // If alarm off btn was pressed
-                if(btnup_flag)
+                if(btnup_flag)                              //if button up/on/off (turn off alarm)
                 {
-                    // Turn off alarm
-                    TIMER_A2->CCR[4] = 0;
-                    alarm_enable = 0;
-                    strcpy(alarm,"ALARM OFF");
+                    TIMER_A2->CCR[4] = 0;                   //disable alarm speaker
+                    alarm_enable = 0;                       //clear alarm flag
+                    strcpy(alarm,"ALARM OFF");              //update alarm status display string
                     RTC_C->AMINHR &= ~(BIT(15) | BIT(7));   // Disable Alarm in RTC
                     TIMER32_1->CONTROL &= ~BIT7;            // Disable Timer32 (wake-up lights)
                     TIMER_A0->CCR[4] = 0;                   // Set LED duty cycle to 0% (wake-up lights)
-
-                    // Set alarm time to set value not snooze value
-                    RTC_C->AMINHR -= 10;
-                    update_alarm_lcd();
-                    set_lcd_brightness();
-                    btnup_flag = 0;
-                    state = Idle;
+                    RTC_C->AMINHR -= 10;                    //set alarm time back to the set time (not snooze time)
+                    update_alarm_lcd();                     //update displayed alarm time
+                    set_lcd_brightness();                   //set LCD backlight to the pot value
+                    btnup_flag = 0;                         //clear button flag
+                    state = Idle;                           //return to idle state
                 }
                 break;
             }
     }
 }
-
 /**
  * Converts raw input and updates temperature on LCD
  */
 void update_temperature(void) {
 
-    float temp;
-    char temp_str[] = "00.0";
+    float temp;                                             //local variable to hold temperature
+    char temp_str[] = "00.0";                               //local character string for displaying temp on LCD
 
     // Convert raw value to *F
     temp = ((0.019958 * temperature_raw * 9) / 5) + 32;
@@ -361,16 +333,15 @@ void update_temperature(void) {
     commandWrite(TEMP_LOC);
     write_String(temp_str);
 }
-
 /**
  * Update Alarm time on LCD
  */
 void update_alarm_lcd(void) {
 //update global alarm time variables
-    if(alarm_enable)
+    if(alarm_enable)                                                //if alarm is enabled
     {
-        alarm_hr = (RTC_C->AMINHR & 0xFF00 & ~BIT(15)) >> 8;
-        alarm_min = (RTC_C->AMINHR & 0x00FF & ~BIT7);
+        alarm_hr = (RTC_C->AMINHR & 0xFF00 & ~BIT(15)) >> 8;        //remove alarm hour enable BIT15 to get correct hour count
+        alarm_min = (RTC_C->AMINHR & 0x00FF & ~BIT7);               //remove alarm minute enable BIT7 to get correct minute count
     }
     else
     {
@@ -378,19 +349,18 @@ void update_alarm_lcd(void) {
         alarm_min = (RTC_C->AMINHR & 0x00FF);
     }
 
-
-    if(((RTC_C->AMINHR & 0xFF00 & ~BIT(15)) >> 8) == 0)            //if hours equal zero time is 12am ((RTC_C->AMINHR & 0xFF00)>>8)
+    if(((RTC_C->AMINHR & 0xFF00 & ~BIT(15)) >> 8) == 0)             //if hours equal zero time is 12am
     {
         alarm_hr = 12;
 
     }
-    if(alarm_hr > 12)                                 //if hours are greater than 12 convert to 12hr format
+    if(alarm_hr > 12)                                               //if hours are greater than 12 convert to 12hr format
     {
         alarm_hr = alarm_hr - 12;
     }
 
 //update global alarm time display strings
-    if(((RTC_C->AMINHR & 0xFF00 & ~BIT(15)) >> 8) > 11)            //if hours are greater than 11 time is pm
+    if(((RTC_C->AMINHR & 0xFF00 & ~BIT(15)) >> 8) > 11)             //if hours are greater than 11 time is pm
     {
         strcpy(alarm_xm, " PM");
     }
@@ -427,23 +397,21 @@ void update_alarm_lcd(void) {
  * Converts raw value from the LCD pot to PWM value for TIMER_A.
  */
 void set_lcd_brightness(void) {
-
     // Convert raw ADC value to duty cycle %
     // map x in 0 to 16383 to y in 0 to 100
     // x/16383 = y/100
-//    int dc = lcd_raw * 100 / 16383;
-
+    // int dc = lcd_raw * 100 / 16383;
     // Set new duty cycle for LCD LED PWM
-//    TIMER_A0->CCR[3] = (dc * 10) - 1;
-
     if(lcd_raw == 0) {
         TIMER_A0->CCR[3] = 0;
     }
     else {
-    TIMER_A0->CCR[3] = (0.061038 * (float)lcd_raw) - 1;
+        TIMER_A0->CCR[3] = (0.061038 * (float)lcd_raw) - 1;
     }
 }
-
+/*
+ * Initialize the SysTick Timer peripheral
+ */
 void init_SysTick(void)             //reset and enable SysTick timer, no interrupt
 {
    SysTick->CTRL = 0;
@@ -468,53 +436,54 @@ void init_LEDs(void)
     TIMER_A0->CCTL[4] = 0b11100000;     //0xE0  reset/set mode
     TIMER_A0->CTL = 0b1000010100;       //no clock divider
 }
-
+/**
+ *  Initialize the Real-Time Clock peripheral
+ *      - Interrupt once per second to update time displayed
+ *      - Alarm interrupt on match with real-time hours and minutes
+ */
 void init_RTC(void)
 {
     RTC_C->CTL0 = (0xA500);         //unlock RTC clock
-    RTC_C->CTL13 = 0;               //????? what does this register do
+    RTC_C->CTL13 = 0;
     RTC_C->TIM0 = 0;                //load zero minutes and zero seconds (00:00)
     RTC_C->TIM1 = 0;                //load zero hours, 12am (12:00:00 AM)
 
     RTC_C->AMINHR = 0;              //load 12am into alarm (12:00 AM)
 
-    RTC_C->PS1CTL = 0b11010;        //1 second interrupt
-    //RTC_C->CTL0 = (0xA500) | BIT5;  //turn on interrupt
+    RTC_C->PS1CTL = 0b11010;        //1 second time interrupt
+    RTC_C->CTL0 = (0xA500) | BIT5;  //turn on alarm interrupt
 
-    RTC_C->CTL13 = 0;               //????? what does this register do
+    RTC_C->CTL13 = 0;
     NVIC_EnableIRQ(RTC_C_IRQn);     //enable RTC interrupt handler
 }
-
 /**
- * Set up analog input A0 & A1
+ * Initialize analog inputs on A0 & A1
+ *  -P5.5 (A0) Trimpot Input for LCD backlight
+ *  -P5.4 (A1) Input for LM35 Temp sensor
  */
 void init_adc(void) {
 
-    // P5.5 - A0
-    // P5.4 - A1
-    // 0x30 = BIT5|BIT4
-    P5->SEL0 |= 0x30;
+    P5->SEL0 |= 0x30;   // 0x30 = BIT5|BIT4
     P5->SEL1 |= 0x30;
 
     ADC14->CTL0 = 0;
     ADC14->CTL0 = 0b10000100001000100000001100010000;   // 0b 1000 0100 0010 0000 0000 0011 0001 0000 from lab 8
-    ADC14->CTL1 = 0b110000;         // 0b 11 0000
+    ADC14->CTL1 = 0b110000;                 // 0b 11 0000
     ADC14->MCTL[0] = 0x0;
-    ADC14->MCTL[1] = 0x1 | BIT7;         //BIT7 signifies end of sequence (so ADC will not run conversions for channels 2 thru 31)
+    ADC14->MCTL[1] = 0x1 | BIT7;            //BIT7 signifies end of sequence (so ADC will not run conversions for channels 2 thru 31)
     ADC14->IER0 |= BIT0;
 
-    // Enable ADC
-    ADC14->CTL0 |= 0b10;
-    NVIC->ISER[0] |= 1 << ADC14_IRQn;
+    ADC14->CTL0 |= 0b10;                    // Enable ADC
+    NVIC->ISER[0] |= 1 << ADC14_IRQn;       // Enable ADC interrupt handler
 }
 
 /**
+ * ADC Interrupt Handler
  * Record analog input values when done converting.
  */
 void ADC14_IRQHandler(void) {
 
-    // Record and clear interrupt flags
-    uint32_t irq_flags = ADC14->IFGR0;
+    uint32_t irq_flags = ADC14->IFGR0;      // Record and clear interrupt flags
     ADC14->CLRIFGR0 |= 0x3;
 
     // Temperature (A1)
@@ -536,30 +505,27 @@ void RTC_C_IRQHandler()
 {
     if(RTC_C->PS1CTL & BIT0)                //if RTC interrupt
     {
-        if(btn_fastspeed)
+        if(btn_fastspeed)                               //if button to speed up time
         {
-            RTC_C->TIM0 += (1<<8);
-            if(((RTC_C->TIM0 & 0xFF00)>>8) == 60)
+            RTC_C->TIM0 += (1<<8);                      //add one minute to real time register
+            if(((RTC_C->TIM0 & 0xFF00)>>8) == 60)       //if real time minutes equal 60
             {
-                RTC_C->TIM1++;
-                RTC_C->TIM0 = (RTC_C->TIM0 & 0x00FF);
+                RTC_C->TIM1++;                          //add one hour to real time
+                RTC_C->TIM0 = (RTC_C->TIM0 & 0x00FF);   //reset real time minute count to zero
             }
         }
-        hr = RTC_C->TIM1 & 0x00FF;          //record hours (from bottom 8 bits of TIM1)
-        min = (RTC_C->TIM0 & 0xFF00) >> 8;  //record minutes (from top 8 bits of TIM0)
-        sec = RTC_C->TIM0 & 0x00FF;         //record seconds (from bottom 8 bits of TIM0)
-        RTC_C->PS1CTL &= ~BIT0;             //reset interrupt flag
+        hr = RTC_C->TIM1 & 0x00FF;                      //record hours (from bottom 8 bits of TIM1)
+        min = (RTC_C->TIM0 & 0xFF00) >> 8;              //record minutes (from top 8 bits of TIM0)
+        sec = RTC_C->TIM0 & 0x00FF;                     //record seconds (from bottom 8 bits of TIM0)
+        RTC_C->PS1CTL &= ~BIT0;                         //reset interrupt flag
     }
-    if(RTC_C->CTL0 & BIT1)
+    if(RTC_C->CTL0 & BIT1)                              //if alarm flag
     {
-        RTC_C->CTL0 = (0xA500) & ~BIT1;
-        RTC_C->AMINHR &= ~(BIT(15)|BIT7);
-        sound_alarm = 1;
+        RTC_C->CTL0 = (0xA500) & ~BIT1;                 //clear alarm flag
+        RTC_C->AMINHR &= ~(BIT(15)|BIT7);               //clear alarm bits in alarm register
+        sound_alarm = 1;                                //set sound alarm flag for state transistion
     }
-
-   //     RTC_C->PS1CTL &= ~BIT0;             //reset interrupt flag
-
-    ADC14->CTL0 |= 0b1;                                 //start ADC Conversion
+    ADC14->CTL0 |= 0b1;                                 //start ADC Conversion every second
 }
 
 /*
@@ -579,7 +545,7 @@ void update_time(void)
     {
         strcpy(xm, " AM");
     }
-    if(hr > 12)            //if hours are greater than 12 convert to 12hr format
+    if(hr > 12)                     //if hours are greater than 12 convert to 12hr format
     {
         hr = hr - 12;
     }
@@ -659,7 +625,7 @@ void set_time(void)
         {
             hr = 12;
         }
-        if(hr > 12)            //if hours are greater than 12 convert to 12hr format
+        if(hr > 12)                     //if hours are greater than 12 convert to 12hr format
         {
             hr = hr - 12;
         }
@@ -746,7 +712,7 @@ void set_alarm(void)
         //if button up has been pressed
         if(btnup_flag)
         {
-            RTC_C->AMINHR += (1<<8);                       //add one hour to alarm time
+            RTC_C->AMINHR += (1<<8);                        //add one hour to alarm time
             if(((RTC_C->AMINHR & 0xFF00)>>8) == 24)
             {
                 RTC_C->AMINHR = (RTC_C->AMINHR & 0x00FF);   //restart alarm hour count, keep alarm minute count
@@ -809,7 +775,7 @@ void set_alarm(void)
         //if button up has been pressed
         if(btnup_flag)
         {
-            RTC_C->AMINHR += 1;                                     //add one minute to alarm time
+            RTC_C->AMINHR += 1;                                         //add one minute to alarm time
             if((RTC_C->AMINHR & 0x00FF) == 60)                           //if alarm minute count needs to rollover
             {
                 RTC_C->AMINHR = (RTC_C->AMINHR & 0xFF00);                  //restart alarm minute count, keep alarm hour count
@@ -848,6 +814,9 @@ void set_alarm(void)
         delay_ms(500);                              //delay half second for blinking effect
     }
 }
+/**
+ *  Initialize push button switches
+ */
 void init_Switches(void)
 {
     //initialize btn_up on P3.6 with interrupt
@@ -909,73 +878,52 @@ void init_Switches(void)
 
     NVIC_EnableIRQ(PORT4_IRQn);     //initialize port 4 interrupt handler
     P4->IFG = 0;                    //clear port 4 interrupt flags
-//    delay_ms(5);                    //allow pins to stabilize before enabling system wide interrupts
 }
-
+/**
+ *  Port 3 Interrupt Handler
+ */
 void PORT3_IRQHandler()
 {
     delay_ms(BOUNCE);           //debounce button ******(need to find an alternative solution, delay in interrupt handler is bad practice)******
     int flag = P3->IFG;             //store the port 3 interrupt flags
     P3->IFG = 0;                    //clear port 3 interrupt flags
 
-        if(flag & BIT6)         //if btnup pressed
+        if(flag & BIT6)         //if btnup pressed set the button flag
         {
             btnup_flag = 1;
         }
 
-        if(flag & BIT5)         //if btndown pressed
+        if(flag & BIT5)         //if btndown pressed set the button flag
         {
             btndown_flag = 1;
         }
-
-
 }
+/**
+ * Port 4 Interrupt Handler
+ */
 void PORT4_IRQHandler()
 {
     delay_ms(BOUNCE);           //debounce button ******(need to find an alternative solution, delay in interrupt handler is bad practice)******
     int flag = P4->IFG;         //store port 4 interrupt flags
     P4->IFG = 0;                //clear port 4 interrupt flags
 
-    if(flag & BIT0)             //if btn_setTime
+    if(flag & BIT0)             //if btn_setTime increment the flag
     {
         set_time_flag++;
     }
-    if(flag & BIT1)             //if btn_setAlarm
+    if(flag & BIT1)             //if btn_setAlarm increment the flag
     {
         set_alarm_flag++;
     }
-    if(flag & BIT2)
+    if(flag & BIT2)             //if button for normal time clear the btn_fastspeed flag
     {
         btn_fastspeed = 0;
     }
-    if(flag & BIT3)
+    if(flag & BIT3)             //if button for fast time (1sec = 1min) set the btn_fastspeed flag
     {
         btn_fastspeed = 1;
     }
 }
-
-void debounce1(uint8_t pin, uint32_t len) {
-
-    uint32_t final = 0xFFFFFFFF;
-    uint32_t mask = 0xFFFFFFFF << len;
-    uint32_t btn_read = 0x1;
-
-    do {
-        btn_read = (btn_read << 1) | ((BTN_SET1->IN & pin) >> pin);
-    } while( (final == (mask | ~btn_read)) || (final == (mask | btn_read)) );
-}
-
-void debounce2(uint8_t pin, uint32_t len) {
-
-    uint32_t final = 0xFFFFFFFF;
-    uint32_t mask = 0xFFFFFFFF << len;
-    uint32_t btn_read = 0x1;
-
-    do {
-        btn_read = (btn_read << 1) | ((BTN_SET2->IN & pin) >> pin);
-    } while( (final == (mask | ~btn_read)) || (final == (mask | btn_read)) );
-}
-
 /*
  * Function initializes the LCD
  */
@@ -1072,6 +1020,10 @@ void PulseEnablePin(void)
     P6->OUT &= ~BIT5;   //set enable low
     delay_micro(10);
 }
+/**
+ * Sends data to the LCD one character at a time
+ *  -INPUT: character string
+ */
 void write_String(char temp[])
 {
     int i,n;
@@ -1081,6 +1033,9 @@ void write_String(char temp[])
         dataWrite(temp[i]);
     }
 }
+/**
+ * Sends initialization format to the LCD
+ */
 void start_Menu(void)
 {
     char str1[] = "12:00:00 AM";
@@ -1103,7 +1058,9 @@ void start_Menu(void)
     commandWrite(0xD7);     //starting address to display string 4 on line 4
     write_String(str4);
 }
-
+/**
+ * Initializes the alarm speaker for PWM on P6.7 (TimerA2.4)
+ */
 void init_Speaker(void)
 {
     P6->SEL0 |= BIT7;
@@ -1116,23 +1073,22 @@ void init_Speaker(void)
     TIMER_A2->CCTL[4] = 0b11100000;     //0xE0  reset/set mode
     TIMER_A2->CTL = 0b1000010100;       //no clock divider
 }
-//test comment
-
+/**
+ * Initialize Timer32_1 peripheral
+ */
 void init_Timer32(void)
 {
     TIMER32_1->CONTROL = 0b01100010;    // set up but leave off - toggle BIT7 to turn on/off
     TIMER32_1->LOAD = 9000000 - 1;      //interrupt every 3 seconds for increasing wake up lights
 
-//    // Timer32_0 for button debounce
-//    TIMER32_0->CONTROL = 0b01100010;
-//    TIMER32_0->LOAD = DEBOUNCE - 1;
-
     NVIC_EnableIRQ(T32_INT1_IRQn);      //enable Timer32 interrupts
 }
-
+/**
+ * Timer32_1 interrupt handler
+ */
 void T32_INT1_IRQHandler(void)
 {
-    TIMER32_1->INTCLR = 1;                              //clear Timer32 interrupt flag
+    TIMER32_1->INTCLR = 1;              //clear Timer32 interrupt flag
     if(TIMER_A0->CCR[4] > 980)          //if LEDs should be at max brightness
     {
         TIMER_A0->CCR[4] = 1000 - 1;    //set LED duty cycle to 100%
@@ -1170,18 +1126,23 @@ void setupSerial()
 /*----------------------------------------------------------------
  * void EUSCIA0_IRQHandler(void)
  *
+ * Author:  Prof. Scott Zuidema
  * Description: Interrupt handler for serial communication on EUSCIA0.
  * Stores the data in the RXBUF into the INPUT_BUFFER global character
  * array for reading in the main application
  * Inputs: None (Interrupt)
  * Outputs: Data stored in the global INPUT_BUFFER. storage_location
  * in the INPUT_BUFFER updated.
+ *
+ * Revisions:
+ *      -12/06/2018 Nick Veltema
+ *      - added set serial flag
 ----------------------------------------------------------------*/
 void EUSCIA0_IRQHandler(void)
 {
     if (EUSCI_A0->IFG & BIT0)  // Interrupt on the receive line
     {
-        serial_flag = 1;
+        serial_flag = 1;       // serial monitor flag to notify main.c that new data is available
         INPUT_BUFFER[storage_location] = EUSCI_A0->RXBUF; // store the new piece of data at the present location in the buffer
         EUSCI_A0->IFG &= ~BIT0; // Clear the interrupt flag right away in case new data is ready
         storage_location++; // update to the next position in the buffer
@@ -1192,6 +1153,7 @@ void EUSCIA0_IRQHandler(void)
 /*----------------------------------------------------------------
  * void readInput(char *string)
  *
+ * Author:  Prof. Scott Zuidema
  * Description:  This is a function similar to most serial port
  * functions like ReadLine.  Written as a demonstration and not
  * production worthy due to limitations.
@@ -1228,6 +1190,7 @@ void readInput(char *string)
 /*----------------------------------------------------------------
  * void writeOutput(char *string)
  *
+ * Author:  Prof. Scott Zuidema
  * Description:  This is a function similar to most serial port
  * functions like printf.  Written as a demonstration and not
  * production worthy due to limitations.
@@ -1245,11 +1208,14 @@ void writeOutput(char *string)
         while(!(EUSCI_A0->IFG & BIT1));
     }
 }
-
+/**
+ * Process commands received via serial communication
+ *  -calls if new data is on the input buffer
+ */
 void serial_monitor(void)
 {
-    char string[BUFFER_SIZE]; // Creates local char array to store incoming serial commands
-    char output[BUFFER_SIZE];
+    char string[BUFFER_SIZE];           // Creates local char array to store incoming serial commands
+    char output[BUFFER_SIZE];           //local char array to produce output string
     char letter;
     char check_letter;
     char invalid[] = "INVALID COMMAND\n";
@@ -1257,159 +1223,161 @@ void serial_monitor(void)
     int input_hours, input_minutes, input_seconds;
     int output_hours, output_minutes, output_seconds;
 
-    readInput(string); // Read the input up to \n, store in string.  This function doesn't return until \n is received
+    readInput(string);                  //store the input up to \n in string. Function doesn't return until \n is received
 
-    if(string[0] != '\0') // if string is not empty, check the inputted data.
+    if(string[0] != '\0')               //if string is not empty
     {
-        letter = string[0];
-        if(letter == 'S')
+        letter = string[0];             //store the first character in the input string
+        if(letter == 'S')               //if the first character is "S"
         {
-            check_letter = string[3];
-            if(check_letter == 'T')
+            check_letter = string[3];               //store the fourth character in the input string
+            if(check_letter == 'T')                 //if the fourth character is a "T" its a "SETTIME" command
             {
-                strncpy(temp_hours,&string[8],2);
-                strcat(temp_hours,"\0");
+                strncpy(temp_hours,&string[8],2);       //copy the hours from string to temp_hours
+                strcat(temp_hours,"\0");                //add null character to end of temp_hours
 
-                strncpy(temp_minutes,&string[11],2);
-                strcat(temp_minutes,"\0");
+                strncpy(temp_minutes,&string[11],2);    //copy the minutes from string to temp_minutes
+                strcat(temp_minutes,"\0");              //add null character to end of temp_minutes
 
-                strncpy(temp_seconds,&string[14],2);
-                strcat(temp_seconds,"\0");
+                strncpy(temp_seconds,&string[14],2);    //copy the seconds from string to temp_seconds
+                strcat(temp_seconds,"\0");              //add null character to end of temp_seconds
 
-                input_hours = atoi(&temp_hours[0]);
-                input_minutes = atoi(&temp_minutes[0]);
-                input_seconds = atoi(&temp_seconds[0]);
+                input_hours = atoi(&temp_hours[0]);         //convert hours from temp_hours to an integer
+                input_minutes = atoi(&temp_minutes[0]);     //convert minutes from temp_minutes to an integer
+                input_seconds = atoi(&temp_seconds[0]);     //convert seconds from temp_seconds to an integer
 
+                //if hours, minutes, seconds are NOT within their respective valid ranges
                 if(input_hours < 0 || input_hours > 23 || input_minutes < 0 || input_minutes > 59 || input_seconds < 0 || input_seconds > 59)
                 {
-                    writeOutput(invalid);
+                    writeOutput(invalid);           //output invalid command to the serial monitor
                 }
                 else
                 {
-                    RTC_C->TIM1 = input_hours;
-                    RTC_C->TIM0 = ((input_minutes<<8) | input_seconds);
+                    RTC_C->TIM1 = input_hours;                              //update real time hours register
+                    RTC_C->TIM0 = ((input_minutes<<8) | input_seconds);     //update real time minutes and seconds register
                 }
 
             }
 
-            else if(check_letter == 'A')
+            else if(check_letter == 'A')                //else if fourth character is a "A" its a "SETALARM" command
             {
-                strncpy(temp_hours,&string[9],2);
-                strcat(temp_hours,"\0");
+                strncpy(temp_hours,&string[9],2);       //copy the hours from string to temp_hours
+                strcat(temp_hours,"\0");                //add null character to end of temp_hours
 
-                strncpy(temp_minutes,&string[12],2);
-                strcat(temp_minutes,"\0");
+                strncpy(temp_minutes,&string[12],2);    //copy the minutes from string to temp_minutes
+                strcat(temp_minutes,"\0");              //add null character to end of temp_minutes
 
-                input_hours = atoi(&temp_hours[0]);
-                input_minutes = atoi(&temp_minutes[0]);
+                input_hours = atoi(&temp_hours[0]);     //convert hours from temp_hours to an integer
+                input_minutes = atoi(&temp_minutes[0]); //convert minutes from temp_minutes to an integer
 
+                //if hours, minutes are NOT within their respective valid ranges
                 if(input_hours < 0 || input_hours > 23 || input_minutes < 0 || input_minutes > 59)
                 {
-                    writeOutput(invalid);
+                    writeOutput(invalid);               //output invalid command to the serial monitor
                 }
                 else
                 {
-                    if(alarm_enable)
+                    if(alarm_enable)                    //if alarm is enabled update alarm register with BIT15 and BIT7 added
                     {
                         RTC_C->AMINHR = ((input_hours<<8) | input_minutes | BIT(15) | BIT7);
                     }
-                    else
+                    else                                //else update alarm register without BIT15 and BIT7 added
                     {
                         RTC_C->AMINHR = ((input_hours<<8) | input_minutes);
                     }
 
                 }
             }
-            else
+            else                        //if none of the above is true, output invalid command to the serial monitor
             {
                 writeOutput(invalid);
             }
         }
-        else if(letter == 'R')
+        else if(letter == 'R')                                  //if the first character is "R"
         {
-            check_letter = string[4];
-            if(check_letter == 'T')
+            check_letter = string[4];                           //store the fifth character in the input string
+            if(check_letter == 'T')                             //if fifth character is "T" then "READTIME" command
             {
-                output_hours = RTC_C->TIM1 & 0x00FF;          //record hours (from bottom 8 bits of TIM1)
-                output_minutes = (RTC_C->TIM0 & 0xFF00) >> 8;  //record minutes (from top 8 bits of TIM0)
-                output_seconds = RTC_C->TIM0 & 0x00FF;         //record seconds (from bottom 8 bits of TIM0)
+                output_hours = RTC_C->TIM1 & 0x00FF;            //record hours (from bottom 8 bits of TIM1)
+                output_minutes = (RTC_C->TIM0 & 0xFF00) >> 8;   //record minutes (from top 8 bits of TIM0)
+                output_seconds = RTC_C->TIM0 & 0x00FF;          //record seconds (from bottom 8 bits of TIM0)
 
-                sprintf(temp_hours,"%d",output_hours);
-                sprintf(temp_minutes,"%d",output_minutes);
-                sprintf(temp_seconds,"%d",output_seconds);
-                if(output_hours < 10)
+                sprintf(temp_hours,"%d",output_hours);          //convert hour count to a string
+                sprintf(temp_minutes,"%d",output_minutes);      //convert minute count to a string
+                sprintf(temp_seconds,"%d",output_seconds);      //convert second count to a string
+                if(output_hours < 10)                           //if hours string is only one character
                 {
-                    strcpy(output,"0");
-                    strcat(output,temp_hours);
-                    strcat(output,":");
+                    strcpy(output,"0");                         //copy a zero to output string
+                    strcat(output,temp_hours);                  //add hour count to output string
+                    strcat(output,":");                         //add colon to output string
                 }
-                else
+                else                                            //if hours string is two characters
                 {
-                    strcpy(output,temp_hours);
-                    strcat(output,":");
+                    strcpy(output,temp_hours);                  //copy hour count to output string
+                    strcat(output,":");                         //add colon to output string
                 }
-                if(output_minutes < 10)
+                if(output_minutes < 10)                         //if minutes string is only one character
                 {
-                    strcat(output,"0");
-                    strcat(output,temp_minutes);
-                    strcat(output,":");
+                    strcat(output,"0");                         //add a zero to output string
+                    strcat(output,temp_minutes);                //add minute count to output string
+                    strcat(output,":");                         //add colon to output string
                 }
-                else
+                else                                            //if minutes string is two characters
                 {
-                    strcat(output,temp_minutes);
-                    strcat(output,":");
+                    strcat(output,temp_minutes);                //add minute count to output string
+                    strcat(output,":");                         //add colon to output string
                 }
-                if(output_seconds < 10)
+                if(output_seconds < 10)                         //if seconds string is only one character
                 {
-                    strcat(output,"0");
-                    strcat(output,temp_seconds);
-                    strcat(output,"\n");
+                    strcat(output,"0");                         //add zero to output string
+                    strcat(output,temp_seconds);                //add second count to output string
+                    strcat(output,"\n");                        //add new line character to output string
                 }
-                else
+                else                                            //if second string is two characters
                 {
-                    strcat(output,temp_seconds);
-                    strcat(output,"\n");
+                    strcat(output,temp_seconds);                //add second count to output string
+                    strcat(output,"\n");                        //add new line character to output string
                 }
 
             }
-            else if(check_letter == 'A')
+            else if(check_letter == 'A')                        //if fifth character is "A" then "READALARM" command
             {
-                if(alarm_enable)
+                if(alarm_enable)                                //if alarm is enabled
                 {
-                    output_hours = ((RTC_C->AMINHR & 0xFF00 & ~BIT(15))>>8);
-                    output_minutes = (RTC_C->AMINHR & 0x00FF & ~BIT7);
+                    output_hours = ((RTC_C->AMINHR & 0xFF00 & ~BIT(15))>>8);    //store alarm hours without BIT15
+                    output_minutes = (RTC_C->AMINHR & 0x00FF & ~BIT7);          //store alarm minutes without BIT7
                 }
-                else
+                else                                                //if alarm is disabled
                 {
-                    output_hours = ((RTC_C->AMINHR & 0xFF00)>>8);
-                    output_minutes = (RTC_C->AMINHR & 0x00FF);
+                    output_hours = ((RTC_C->AMINHR & 0xFF00)>>8);   //store alarm hours
+                    output_minutes = (RTC_C->AMINHR & 0x00FF);      //store alarm minutes
                 }
-                sprintf(temp_hours,"%d",output_hours);
-                sprintf(temp_minutes,"%d",output_minutes);
-                if(output_hours < 10)
+                sprintf(temp_hours,"%d",output_hours);              //convert hour count to a string
+                sprintf(temp_minutes,"%d",output_minutes);          //convert minute count to a string
+                if(output_hours < 10)                               //if hour string only one character
                 {
-                    strcpy(output,"0");
-                    strcat(output,temp_hours);
-                    strcat(output,":");
+                    strcpy(output,"0");                             //add zero to output string
+                    strcat(output,temp_hours);                      //add hour count to output string
+                    strcat(output,":");                             //add colon to output string
                 }
-                else
+                else                                                //if hour string is two characters
                 {
-                    strcpy(output,temp_hours);
-                    strcat(output,":");
+                    strcpy(output,temp_hours);                      //add hour count to output string
+                    strcat(output,":");                             //add colon to output string
                 }
-                if(output_minutes < 10)
+                if(output_minutes < 10)                             //if minute string only one character
                 {
-                    strcat(output,"0");
-                    strcat(output,temp_minutes);
-                    strcat(output,"\n");
+                    strcat(output,"0");                             //add zero to output string
+                    strcat(output,temp_minutes);                    //add minute count to output string
+                    strcat(output,"\n");                            //add new line character to output string
                 }
-                else
+                else                                                //if minute string is two characters
                 {
-                    strcat(output,temp_minutes);
-                    strcat(output,"\n");
+                    strcat(output,temp_minutes);                    //add minute count to output string
+                    strcat(output,"\n");                            //add new line character to output string
                 }
             }
-            writeOutput(output);
+            writeOutput(output);                                    //send output string to the serial monitor
         }
     }
 }
